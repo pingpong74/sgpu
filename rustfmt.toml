@@ -1,0 +1,12 @@
+max_width = 200
+
+# keep functions straight
+fn_call_width = 300
+fn_single_line = true
+
+# force structs to wrap earlier
+struct_lit_width = 10
+struct_variant_width = 10
+struct_field_align_threshold = 0
+
+array_width = 20

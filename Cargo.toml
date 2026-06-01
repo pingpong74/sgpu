@@ -1,0 +1,11 @@
+[package]
+name = "sgpu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ash = { version = "0.38.0", features = ["linked"] }
+gpu-allocator = "*"
+raw-window-handle = "0.6.2"
+slotmap = "1.1.1"
+bitflags = "*"
