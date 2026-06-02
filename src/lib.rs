@@ -7,6 +7,7 @@ mod types;
 use std::sync::OnceLock;
 
 pub use api::*;
+pub use commands::*;
 pub use types::*;
 
 static CONTEXT: OnceLock<backend::Context> = OnceLock::new();

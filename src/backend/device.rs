@@ -1,9 +1,12 @@
-use std::{cell::UnsafeCell, mem::ManuallyDrop, sync::atomic::AtomicU64};
+use std::{
+    mem::ManuallyDrop,
+    sync::{Mutex, atomic::AtomicU64},
+};
 
 use crate::{
     BufferDescription, MemoryType,
     api::SgpuInititizationInfo,
-    backend::{instance::Instance, physical_device::PhysicalDevice, resources::InnerBuffer},
+    backend::{commands::Queue, instance::Instance, physical_device::PhysicalDevice, resources::InnerBuffer},
     commands::QueueType,
 };
 use ash::vk::{self, SemaphoreWaitInfo};
@@ -15,7 +18,7 @@ use gpu_allocator::{
 pub(crate) struct Device {
     pub(crate) handle: ash::Device,
     pub(crate) physical_device: PhysicalDevice,
-    pub(crate) allocator: ManuallyDrop<UnsafeCell<Allocator>>,
+    pub(crate) allocator: ManuallyDrop<Mutex<Allocator>>,
     pub(crate) queue_indices: [u32; 3],
 }
 
@@ -58,11 +61,7 @@ impl Device {
         };
 
         let unique_families: Vec<u32> = {
-            let mut v = vec![
-                physical_device.queue_families.graphics_family.unwrap(),
-                physical_device.queue_families.transfer_family.unwrap(),
-                physical_device.queue_families.compute_family.unwrap(),
-            ];
+            let mut v: Vec<_> = physical_device.queue_families.queue_families_indices.iter().map(|q| q.unwrap()).collect();
             v.sort();
             v.dedup();
             v
@@ -155,13 +154,9 @@ impl Device {
         .expect("Failed to create allocator");
 
         return Device {
-            queue_indices: [
-                physical_device.queue_families.graphics_family.unwrap(),
-                physical_device.queue_families.transfer_family.unwrap(),
-                physical_device.queue_families.compute_family.unwrap(),
-            ],
+            queue_indices: std::array::from_fn(|i| physical_device.queue_families.queue_families_indices[i].unwrap()),
             handle: dev,
-            allocator: ManuallyDrop::new(UnsafeCell::new(allocator)),
+            allocator: ManuallyDrop::new(Mutex::new(allocator)),
             physical_device: physical_device,
         };
     }
@@ -176,23 +171,12 @@ impl Device {
                 self.handle.create_semaphore(&create_info, None).expect("Failed to create timeline semaphore")
             };
 
-            return [
-                Queue {
-                    queue: self.handle.get_device_queue(self.physical_device.queue_families.graphics_family.unwrap(), 0),
-                    semaphore: create_semaphore,
-                    counter: AtomicU64::new(0),
-                },
-                Queue {
-                    queue: self.handle.get_device_queue(self.physical_device.queue_families.compute_family.unwrap(), 0),
-                    semaphore: create_semaphore,
-                    counter: AtomicU64::new(0),
-                },
-                Queue {
-                    queue: self.handle.get_device_queue(self.physical_device.queue_families.transfer_family.unwrap(), 0),
-                    semaphore: create_semaphore,
-                    counter: AtomicU64::new(0),
-                },
-            ];
+            return std::array::from_fn(|i| Queue {
+                queue: self.handle.get_device_queue(self.physical_device.queue_families.queue_families_indices[i].unwrap(), 0),
+                queue_type: QueueType::Graphics,
+                semaphore: create_semaphore,
+                cpu_signaled_value: Mutex::new(0),
+            });
         }
     }
 
@@ -214,7 +198,7 @@ impl Device {
             allocation_scheme: AllocationScheme::GpuAllocatorManaged,
         };
 
-        let allocation = unsafe { self.allocator.get().as_mut().unwrap().allocate(&allocation_create_info).expect("Failed to allocate memory on device") };
+        let allocation = { self.allocator.lock().unwrap().allocate(&allocation_create_info).expect("Failed to allocate memory on device") };
 
         unsafe {
             self.handle.bind_buffer_memory(buffer, allocation.memory(), allocation.offset()).expect("Failed to bind buffer memory");
@@ -239,7 +223,7 @@ impl Device {
     pub(crate) fn destroy_buffer(&self, buffer: InnerBuffer) {
         unsafe {
             self.handle.destroy_buffer(buffer.buffer, None);
-            self.allocator.get().as_mut_unchecked().free(buffer.allocation);
+            self.allocator.lock().unwrap().free(buffer.allocation).expect("Failed to free buffer");
         }
     }
 
@@ -255,7 +239,9 @@ impl Device {
     #[inline]
     pub(crate) fn destroy_command_pool(&self, pool: vk::CommandPool) {
         unsafe {
-            self.handle.destroy_command_pool(pool, None);
+            if pool != vk::CommandPool::null() {
+                self.handle.destroy_command_pool(pool, None);
+            }
         }
     }
 
@@ -266,11 +252,10 @@ impl Device {
                 .expect("Failed to wait on Semaphore");
         }
     }
-}
 
-impl Drop for Device {
-    fn drop(&mut self) {
+    pub(crate) fn cleanup(&mut self) {
         unsafe {
+            ManuallyDrop::drop(&mut self.allocator);
             self.handle.destroy_device(None);
         }
     }
@@ -278,17 +263,3 @@ impl Drop for Device {
 
 unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
-
-pub(crate) struct Queue {
-    queue: vk::Queue,
-    semaphore: vk::Semaphore,
-    counter: AtomicU64,
-}
-
-impl Queue {
-    pub(crate) fn submit() {}
-
-    pub(crate) fn poll(&self, value: u64) -> bool {
-        return self.counter.load(std::sync::atomic::Ordering::Relaxed) >= value;
-    }
-}

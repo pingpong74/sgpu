@@ -63,6 +63,16 @@ pub struct Buffer {
     pub(crate) id: DefaultKey,
 }
 
+impl Buffer {
+    pub fn as_slice<T>(&self) -> &[T] {
+        let inner = crate::CONTEXT.get().unwrap().get_buffer_inner(self);
+
+        return unsafe {
+            std::slice::from_raw_parts(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *const T, inner.mem_requirements.size as usize / std::mem::size_of::<T>())
+        };
+    }
+}
+
 /// Used for sync. Every submit returns a counter
 /// Other command buffers can wait on a counter.
 // u8 queue + u56 counter
@@ -75,9 +85,11 @@ impl Counter {
     const VALUE_MASK: u64 = (1u64 << 56) - 1;
     const QUEUE_MASK: u64 = !Self::VALUE_MASK;
 
-    pub(crate) fn encode(queue: QueueType, value: u64) -> u64 {
+    pub(crate) fn encode(queue: QueueType, value: u64) -> Counter {
         let q = (queue as u64) << 56;
-        q | (value & Self::VALUE_MASK)
+        return Counter {
+            data: q | (value & Self::VALUE_MASK),
+        };
     }
 
     pub(crate) fn decode(&self) -> (QueueType, u64) {

@@ -1,4 +1,8 @@
-use crate::{backend::Context, types::*};
+use crate::{
+    backend::Context,
+    commands::{CommandBuffer, QueueType},
+    types::*,
+};
 
 pub struct SgpuInititizationInfo {
     pub app_name: &'static str,
@@ -50,4 +54,14 @@ pub fn poll(counter: Counter) -> bool {
 /// Wait for a counter to be signaled CPU side.
 pub fn wait(counter: Counter) {
     crate::CONTEXT.get().expect("Not initialized").wait(counter);
+}
+
+/// began the recording of command buffer
+pub fn record(queue_type: QueueType) -> CommandBuffer {
+    return crate::CONTEXT.get().expect("Not initialized").record(queue_type);
+}
+
+/// submit command buffers
+pub fn submit(command_buffers: &[CommandBuffer]) -> Counter {
+    return crate::CONTEXT.get().expect("Not initialized").submit(command_buffers);
 }
