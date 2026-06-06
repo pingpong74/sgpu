@@ -1,22 +1,27 @@
 use crate::{
-    Buffer, BufferDescription, Counter,
+    Buffer, BufferDescription, Counter, Image, ImageDescription, ImageView,
     api::SgpuInititizationInfo,
-    backend::{commands::*, device::Device, resources::InnerBuffer},
+    backend::{
+        commands::*,
+        device::Device,
+        resources::{InnerBuffer, InnerImage},
+    },
     commands::{CommandBuffer, QueueType},
 };
 
 use super::instance::Instance;
 use slotmap::{DefaultKey, SlotMap};
 
-use std::{cell::UnsafeCell, collections::HashMap, sync::RwLock, thread::ThreadId};
+use std::{collections::HashMap, sync::RwLock, thread::ThreadId};
 
 pub(crate) struct Context {
-    instance: Instance,
+    pub(crate) instance: Instance,
     pub(crate) device: Device,
 
     pub(crate) queues: [Queue; 3],
 
-    buffers: UnsafeCell<SlotMap<DefaultKey, InnerBuffer>>,
+    pub(crate) buffers: RwLock<SlotMap<DefaultKey, InnerBuffer>>,
+    pub(crate) images: RwLock<SlotMap<DefaultKey, InnerImage>>,
 
     pub(crate) thread_cmd_pool_pool: RwLock<HashMap<ThreadId, ThreadCommandPools>>,
 }
@@ -32,7 +37,8 @@ impl Context {
             device: device,
             queues: queues,
 
-            buffers: UnsafeCell::new(Default::default()),
+            buffers: RwLock::new(Default::default()),
+            images: RwLock::new(Default::default()),
 
             thread_cmd_pool_pool: RwLock::new(HashMap::new()),
         };
@@ -41,27 +47,51 @@ impl Context {
     pub(crate) fn create_buffer(&self, desc: &BufferDescription) -> Buffer {
         let inner_buffer = self.device.create_buffer(desc);
 
-        return unsafe {
-            Buffer {
-                id: self.buffers.get().as_mut_unchecked().insert(inner_buffer),
-            }
+        return Buffer {
+            id: self.buffers.write().unwrap().insert(inner_buffer),
         };
     }
 
-    pub(crate) fn get_buffer_inner(&self, id: &Buffer) -> &InnerBuffer {
-        return unsafe { self.buffers.get().as_mut_unchecked().get(id.id).expect("Inavild Buffer") };
+    pub(crate) unsafe fn get_buffer_inner(&self, id: &Buffer) -> &InnerBuffer {
+        let ptr = self.buffers.read().unwrap().get(id.id).expect("Invalid Buffer") as *const InnerBuffer;
+        return unsafe { &*ptr };
     }
 
     pub(crate) fn destroy_buffer(&self, buffer: Buffer) {
-        let inner = unsafe { self.buffers.get().as_mut_unchecked().remove(buffer.id).expect("Tried destroy buffer twice") };
+        let inner = self.buffers.write().unwrap().remove(buffer.id).expect("Tried destroy buffer twice");
 
         self.device.destroy_buffer(inner);
+    }
+
+    pub(crate) fn create_image(&self, desc: &ImageDescription) -> Image {
+        let inner_image = self.device.create_image(desc);
+        let view = inner_image.image_views[0].view;
+        let id = self.images.write().unwrap().insert(inner_image);
+
+        return Image {
+            default_view: ImageView {
+                raw: view,
+                image_key: id,
+                id: 0,
+            },
+            id: id,
+        };
+    }
+
+    pub(crate) fn destroy_image(&self, image: Image) {
+        let inner = self.images.write().unwrap().remove(image.id).expect("Tried to destroy Image twice");
+
+        self.device.destroy_image(inner);
     }
 
     pub(crate) fn poll(&self, counter: Counter) -> bool {
         let (queue_type, value) = counter.decode();
 
         return self.queues[queue_type as usize].poll(value);
+    }
+
+    pub(crate) fn wait_idle(&self) {
+        self.device.wait_idle();
     }
 
     pub(crate) fn wait(&self, counter: Counter) {
@@ -96,9 +126,7 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        unsafe {
-            self.buffers.get().as_mut_unchecked().drain().for_each(|(_, buffer)| self.device.destroy_buffer(buffer));
-        }
+        self.buffers.write().unwrap().drain().for_each(|(_, buffer)| self.device.destroy_buffer(buffer));
 
         self.instance.cleanup();
         self.device.cleanup();

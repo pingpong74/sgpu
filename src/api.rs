@@ -1,8 +1,11 @@
 use crate::{
-    backend::Context,
+    backend::{Context, InnerSwapchain, Surface},
     commands::{CommandBuffer, QueueType},
+    swapchain::{Swapchain, SwapchainDescription},
     types::*,
 };
+
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 pub struct SgpuInititizationInfo {
     pub app_name: &'static str,
@@ -12,6 +15,15 @@ pub struct SgpuInititizationInfo {
     pub mesh_shaders: bool,
     pub atomic_float_operations: bool,
     pub ray_tracing: bool,
+}
+
+impl SgpuInititizationInfo {
+    pub fn default_from_window<W: HasWindowHandle>(window: &W) -> SgpuInititizationInfo {
+        return SgpuInititizationInfo {
+            window_handle: Some(window.window_handle().unwrap().as_raw()),
+            ..Default::default()
+        };
+    }
 }
 
 impl Default for SgpuInititizationInfo {
@@ -35,14 +47,30 @@ pub fn sgpu_init(init_info: &SgpuInititizationInfo) {
     let _ = crate::CONTEXT.set(Context::new(init_info));
 }
 
-/// Create buffer, not thread safe ( For now ?)
 pub fn create_buffer(buffer_desc: &BufferDescription) -> Buffer {
     return crate::CONTEXT.get().expect("Not initialized").create_buffer(buffer_desc);
 }
 
-/// Destroy buffer, not thread safe?
 pub fn destroy_buffer(buffer: Buffer) {
     crate::CONTEXT.get().expect("Not initialized").destroy_buffer(buffer);
+}
+
+pub fn create_image(image_desc: &ImageDescription) -> Image {
+    return crate::CONTEXT.get().expect("Not initialized").create_image(image_desc);
+}
+
+pub fn destroy_image(image: Image) {
+    crate::CONTEXT.get().expect("Not initialized").destroy_image(image);
+}
+
+pub fn create_swapchain<W: HasDisplayHandle + HasWindowHandle>(window: &W, swapchain_description: &SwapchainDescription) -> Swapchain {
+    let surface = Surface::create_surface(&crate::CONTEXT.get().expect("Not initialized").instance, window);
+    let inner = InnerSwapchain::new(&surface, swapchain_description, None);
+
+    return Swapchain {
+        inner: inner,
+        surface: surface,
+    };
 }
 
 /// A simple function to check if the counter has already been signaled
@@ -54,6 +82,11 @@ pub fn poll(counter: Counter) -> bool {
 /// Wait for a counter to be signaled CPU side.
 pub fn wait(counter: Counter) {
     crate::CONTEXT.get().expect("Not initialized").wait(counter);
+}
+
+/// wait for all gpu work to be over
+pub fn wait_idle() {
+    crate::CONTEXT.get().expect("Not initialized").wait_idle();
 }
 
 /// began the recording of command buffer

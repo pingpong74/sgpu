@@ -1,12 +1,14 @@
-use std::{
-    mem::ManuallyDrop,
-    sync::{Mutex, atomic::AtomicU64},
-};
+use std::{mem::ManuallyDrop, sync::Mutex};
 
 use crate::{
-    BufferDescription, MemoryType,
+    BufferDescription, ImageDescription, ImageViewDescription, MemoryType,
     api::SgpuInititizationInfo,
-    backend::{commands::Queue, instance::Instance, physical_device::PhysicalDevice, resources::InnerBuffer},
+    backend::{
+        commands::Queue,
+        instance::Instance,
+        physical_device::PhysicalDevice,
+        resources::{InnerBuffer, InnerImage, InnerImageView},
+    },
     commands::QueueType,
 };
 use ash::vk::{self, SemaphoreWaitInfo};
@@ -14,6 +16,7 @@ use gpu_allocator::{
     AllocationSizes, AllocatorDebugSettings,
     vulkan::{AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc},
 };
+use smallvec::smallvec;
 
 pub(crate) struct Device {
     pub(crate) handle: ash::Device,
@@ -34,9 +37,6 @@ impl Device {
             device_extensions.push(ash::khr::acceleration_structure::NAME.as_ptr());
             device_extensions.push(ash::khr::ray_tracing_pipeline::NAME.as_ptr());
             device_extensions.push(ash::khr::deferred_host_operations::NAME.as_ptr());
-            if !device_extensions.contains(&ash::khr::spirv_1_4::NAME.as_ptr()) {
-                device_extensions.push(ash::khr::spirv_1_4::NAME.as_ptr());
-            }
         }
 
         if sgpu_init_info.atomic_float_operations {
@@ -46,9 +46,10 @@ impl Device {
         if sgpu_init_info.mesh_shaders {
             device_extensions.push(ash::ext::mesh_shader::NAME.as_ptr());
             device_extensions.push(ash::khr::shader_float_controls::NAME.as_ptr());
-            if !device_extensions.contains(&ash::khr::spirv_1_4::NAME.as_ptr()) {
-                device_extensions.push(ash::khr::spirv_1_4::NAME.as_ptr());
-            }
+        }
+
+        if sgpu_init_info.mesh_shaders | sgpu_init_info.ray_tracing {
+            device_extensions.push(ash::khr::spirv_1_4::NAME.as_ptr());
         }
 
         let physical_device = {
@@ -227,6 +228,85 @@ impl Device {
         }
     }
 
+    pub(crate) fn create_image(&self, desc: &ImageDescription) -> InnerImage {
+        let image_create_info = vk::ImageCreateInfo::default()
+            .flags(desc.create_flags.to_vk())
+            .usage(desc.usage.to_vk())
+            .extent(desc.extent.to_vk())
+            .format(desc.format.to_vk())
+            .array_layers(desc.array_layers)
+            .mip_levels(desc.mip_levels)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .image_type(desc.image_type.to_vk())
+            .samples(desc.samples.to_vk())
+            .tiling(vk::ImageTiling::OPTIMAL);
+
+        let image = unsafe { self.handle.create_image(&image_create_info, None).expect("Failed to create Image") };
+
+        let memory_requirements = unsafe { self.handle.get_image_memory_requirements(image) };
+
+        let allocation_create_info = AllocationCreateDesc {
+            name: "o",
+            requirements: memory_requirements,
+            location: desc.memory_type.to_vk_flag(),
+            linear: true,
+            allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+        };
+
+        let allocation = self.allocator.lock().unwrap().allocate(&allocation_create_info).expect("Failed to allocate memory on device");
+
+        unsafe {
+            self.handle.bind_image_memory(image, allocation.memory(), allocation.offset()).expect("Failed to bind image memory");
+        }
+
+        let mut image = InnerImage {
+            image: image,
+            mem_requirements: memory_requirements,
+            allocation: allocation,
+            format: desc.format.to_vk(),
+            image_views: smallvec![],
+        };
+
+        self.create_image_view(&mut image, &desc.default_view);
+
+        return image;
+    }
+
+    pub(crate) fn create_image_view(&self, image: &mut InnerImage, desc: &ImageViewDescription) -> (usize, vk::ImageView) {
+        let image_view_create_info = vk::ImageViewCreateInfo::default()
+            .image(image.image)
+            .view_type(desc.view_type.to_vk())
+            .format(image.format)
+            .components(vk::ComponentMapping {
+                r: vk::ComponentSwizzle::IDENTITY,
+                g: vk::ComponentSwizzle::IDENTITY,
+                b: vk::ComponentSwizzle::IDENTITY,
+                a: vk::ComponentSwizzle::IDENTITY,
+            })
+            .subresource_range(desc.subresources.to_vk_subresource_range());
+
+        let view = unsafe { self.handle.create_image_view(&image_view_create_info, None).expect("Failed to create Image view") };
+        let id = image.image_views.len();
+
+        image.image_views.push(InnerImageView {
+            view: view,
+            subresources: desc.subresources.to_vk_subresource_range(),
+        });
+
+        return (id, view);
+    }
+
+    pub(crate) fn destroy_image(&self, image: InnerImage) {
+        unsafe {
+            for view in image.image_views {
+                self.handle.destroy_image_view(view.view, None);
+            }
+
+            self.handle.destroy_image(image.image, None);
+            self.allocator.lock().unwrap().free(image.allocation).expect("Failed to free buffer");
+        }
+    }
+
     #[inline]
     pub(crate) fn create_command_pool(&self, queue_type: QueueType) -> vk::CommandPool {
         return unsafe {
@@ -242,6 +322,12 @@ impl Device {
             if pool != vk::CommandPool::null() {
                 self.handle.destroy_command_pool(pool, None);
             }
+        }
+    }
+
+    pub(crate) fn wait_idle(&self) {
+        unsafe {
+            self.handle.device_wait_idle().unwrap();
         }
     }
 

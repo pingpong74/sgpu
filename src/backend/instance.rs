@@ -4,6 +4,7 @@ use ash::vk;
 use raw_window_handle;
 
 pub(crate) struct Instance {
+    pub(crate) entry: ash::Entry,
     pub(crate) handle: ash::Instance,
     debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
     debug_loader: Option<ash::ext::debug_utils::Instance>,
@@ -90,6 +91,7 @@ impl Instance {
         }
 
         return Instance {
+            entry: entry,
             handle: instance,
             debug_messenger: debug_messenger,
             debug_loader: debug_loader,

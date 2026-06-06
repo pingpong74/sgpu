@@ -3,10 +3,20 @@ name = "sgpu"
 version = "0.1.0"
 edition = "2024"
 
+
 [dependencies]
-ash = { version = "0.38.0", features = ["linked"] }
-gpu-allocator = "*"
-raw-window-handle = "0.6.2"
-slotmap = "1.1.1"
-bitflags = "*"
-smallvec = "*"
+ash = { version = "0.38", features = ["linked"] }
+gpu-allocator = "0.28"
+raw-window-handle = "0.6"
+slotmap = "1.0"
+bitflags = "2"
+smallvec = "1"
+
+[dev-dependencies]
+winit = "0.30"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
