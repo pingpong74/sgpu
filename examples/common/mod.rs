@@ -1,14 +1,18 @@
+use std::time::{Duration, Instant};
 use winit::{application::*, event::*, event_loop::*, window::*};
 
 pub trait Application {
     fn new(window: &Window) -> Self;
     fn resize(&mut self, width: u32, height: u32);
-    fn render(&mut self, window: &Window);
+    fn render(&mut self, window: &Window, delta_time: Duration, elapsed_time: Duration);
 }
 
 pub struct Runner<A: Application> {
     app: Option<A>,
     window: Option<Window>,
+
+    start_time: Instant,
+    last_frame: Instant,
 }
 
 impl<A: Application> Runner<A> {
@@ -16,6 +20,8 @@ impl<A: Application> Runner<A> {
         return Runner {
             app: None,
             window: None,
+            start_time: Instant::now(),
+            last_frame: Instant::now(),
         };
     }
 }
@@ -29,6 +35,9 @@ impl<A: Application> ApplicationHandler for Runner<A> {
         let window = event_loop.create_window(WindowAttributes::default()).expect("Failed to create window");
         window.set_cursor_grab(winit::window::CursorGrabMode::Locked).expect(":(");
         window.set_cursor_visible(false);
+
+        self.start_time = Instant::now();
+        self.last_frame = Instant::now();
 
         self.app = Some(Application::new(&window));
         self.window = Some(window);
@@ -45,7 +54,15 @@ impl<A: Application> ApplicationHandler for Runner<A> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                app.render(window);
+                let now = Instant::now();
+
+                let delta_time = now - self.last_frame;
+                let elapsed_time = now - self.start_time;
+
+                self.last_frame = now;
+
+                app.render(window, delta_time, elapsed_time);
+
                 window.request_redraw();
             }
             WindowEvent::Resized(size) => {

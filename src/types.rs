@@ -1,6 +1,6 @@
 use ash::vk;
 use gpu_allocator::MemoryLocation;
-use slotmap::DefaultKey;
+use slotmap::{DefaultKey, Key};
 
 use crate::commands::QueueType;
 
@@ -399,6 +399,10 @@ pub struct Buffer {
 }
 
 impl Buffer {
+    pub fn descriptor_index(&self) -> u32 {
+        return self.id.data().as_ffi() as u32;
+    }
+
     pub fn as_slice<T>(&self) -> &[T] {
         let inner = unsafe { crate::CONTEXT.get().unwrap().get_buffer_inner(self) };
 

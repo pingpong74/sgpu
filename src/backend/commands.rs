@@ -124,6 +124,7 @@ impl CommandPool {
 
     fn allocate_buffer(&mut self) -> vk::CommandBuffer {
         let device = &crate::CONTEXT.get().unwrap().device.handle;
+        let desc = &crate::CONTEXT.get().unwrap().bindless_descriptor_set;
 
         if self.in_flight == self.buffers.len() {
             let new = unsafe {
@@ -146,6 +147,8 @@ impl CommandPool {
             device
                 .begin_command_buffer(buf, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT))
                 .expect("Failed to begin command buffer");
+
+            device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, 0, &[desc.set], &[]);
         }
 
         return buf;

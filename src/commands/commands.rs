@@ -305,7 +305,6 @@ impl CommandBuffer {
     // give seperate struct or smt man
     pub fn begin_rendering<F: FnOnce(RenderRecorder)>(&mut self, rendering_begin_info: &RenderingBeginInfo, f: F) {
         let ctx = crate::CONTEXT.get().expect("sgpu not initialized");
-        let image_views = ctx.image_views.read().unwrap();
         let mut color_attachment_info = SmallVec::<[vk::RenderingAttachmentInfo; 3]>::new();
 
         for color_attachement in rendering_begin_info.color_attachments {

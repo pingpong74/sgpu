@@ -1,7 +1,6 @@
 use super::device::Device;
 use ash::vk;
 
-pub const BINDLESS_SET: u32 = 0;
 pub const SAMPLED_IMAGE_BINDING: u32 = 0;
 pub const STORAGE_IMAGE_BINDING: u32 = 1;
 pub const BINDLESS_BUFFER_BINDING: u32 = 2;
@@ -130,7 +129,7 @@ impl BindlessDescriptorSet {
                 .dst_binding(BINDLESS_BUFFER_BINDING)
                 .dst_array_element(index)
                 .descriptor_count(1)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE),
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER),
         ];
 
         unsafe {
