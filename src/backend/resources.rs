@@ -12,6 +12,7 @@ pub(crate) struct InnerBuffer {
 
 pub(crate) struct InnerImageView {
     pub(crate) view: vk::ImageView,
+    pub(crate) image: vk::Image,
     pub(crate) subresources: vk::ImageSubresourceRange,
 }
 
@@ -21,7 +22,4 @@ pub(crate) struct InnerImage {
     pub(crate) mem_requirements: vk::MemoryRequirements,
     pub(crate) allocation: Allocation,
     pub(crate) format: vk::Format,
-
-    // idk how to deal with ts..
-    pub(crate) image_views: SmallVec<[InnerImageView; 4]>,
 }

@@ -85,7 +85,7 @@ pub enum MemoryType {
 }
 
 impl MemoryType {
-    pub(crate) const fn to_vk_flag(&self) -> MemoryLocation {
+    pub(crate) const fn to_vk(&self) -> MemoryLocation {
         match self {
             Self::DeviceLocal => MemoryLocation::GpuOnly,
             Self::PreferHost => MemoryLocation::CpuToGpu,
@@ -426,18 +426,7 @@ pub struct Image {
 impl Image {
     pub fn create_view(&self, image_view_desc: &ImageViewDescription) -> ImageView {
         let ctx = crate::CONTEXT.get().unwrap();
-
-        let (id, view) = {
-            let mut images = ctx.images.write().unwrap();
-            let inner = images.get_mut(self.id).unwrap();
-            ctx.device.create_image_view(inner, image_view_desc)
-        };
-
-        return ImageView {
-            raw: view,
-            image_key: self.id,
-            id: id,
-        };
+        return ctx.create_image_view(image_view_desc, *self);
     }
 
     pub fn default_view(&self) -> ImageView {
@@ -448,8 +437,7 @@ impl Image {
 #[derive(Clone, Copy, PartialEq, Default)]
 pub struct ImageView {
     pub(crate) raw: vk::ImageView,
-    pub(crate) image_key: DefaultKey,
-    pub(crate) id: usize,
+    pub(crate) id: DefaultKey,
 }
 
 /// Used for sync. Every submit returns a counter

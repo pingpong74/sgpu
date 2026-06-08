@@ -1,5 +1,6 @@
 mod commands;
 mod context;
+mod descriptors;
 mod device;
 mod instance;
 mod physical_device;

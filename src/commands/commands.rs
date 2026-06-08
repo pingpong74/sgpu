@@ -199,8 +199,7 @@ impl Default for RenderingAttachment {
         Self {
             image_view: ImageView {
                 raw: ash::vk::ImageView::null(),
-                image_key: DefaultKey::null(),
-                id: 0,
+                id: DefaultKey::null(),
             },
             resolve_image_view: None,
             load_op: LoadOp::Clear,
@@ -306,10 +305,11 @@ impl CommandBuffer {
     // give seperate struct or smt man
     pub fn begin_rendering<F: FnOnce(RenderRecorder)>(&mut self, rendering_begin_info: &RenderingBeginInfo, f: F) {
         let ctx = crate::CONTEXT.get().expect("sgpu not initialized");
+        let image_views = ctx.image_views.read().unwrap();
         let mut color_attachment_info = SmallVec::<[vk::RenderingAttachmentInfo; 3]>::new();
 
         for color_attachement in rendering_begin_info.color_attachments {
-            color_attachment_info.push(
+            color_attachment_info.push({
                 vk::RenderingAttachmentInfo::default()
                     .resolve_mode(color_attachement.resolve_mode.to_vk())
                     .image_view(color_attachement.image_view.raw)
@@ -318,8 +318,8 @@ impl CommandBuffer {
                     .resolve_image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
                     .load_op(color_attachement.load_op.to_vk())
                     .store_op(color_attachement.store_op.to_vk())
-                    .clear_value(color_attachement.clear_value.to_vk()),
-            )
+                    .clear_value(color_attachement.clear_value.to_vk())
+            })
         }
 
         let mut rendering_info = vk::RenderingInfo::default()

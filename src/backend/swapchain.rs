@@ -1,4 +1,4 @@
-use ash::vk;
+use ash::{ext::image_2d_view_of_3d, vk};
 use gpu_allocator::vulkan::Allocation;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::smallvec;
@@ -174,27 +174,23 @@ impl InnerSwapchain {
                 mem_requirements: vk::MemoryRequirements::default(),
                 format: swapchain_description.format.to_vk(),
                 allocation: Allocation::default(),
-                image_views: smallvec![],
             })
             .collect();
-
-        inner_images.iter_mut().for_each(|i| {
-            ctx.device.create_image_view(i, &ImageViewDescription::default());
-        });
 
         let ids = inner_images
             .into_iter()
             .map(|img| {
-                let view = img.image_views[0].view;
-                let id = ctx.images.write().unwrap().insert(img);
+                let inner_view = ctx.device.create_image_view(&img, &ImageViewDescription::default());
+                let raw = inner_view.view;
+                let view_id = ctx.image_views.write().unwrap().insert(inner_view);
+                let image_id = ctx.images.write().unwrap().insert(img);
 
                 Image {
                     default_view: ImageView {
-                        raw: view,
-                        image_key: id,
-                        id: 0,
+                        raw: raw,
+                        id: view_id,
                     },
-                    id: id,
+                    id: image_id,
                 }
             })
             .collect();
@@ -298,7 +294,6 @@ impl InnerSwapchain {
 
             self.images.iter().for_each(|img| {
                 let inner = ctx.images.write().unwrap().remove(img.id).unwrap();
-                ctx.device.handle.destroy_image_view(inner.image_views[0].view, None);
             });
 
             self.swapchain_loader.destroy_swapchain(self.handle, None);

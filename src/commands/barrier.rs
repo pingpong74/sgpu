@@ -547,13 +547,8 @@ fn fold_accesses(previous: &[AccessType], next: &[AccessType]) -> (vk::PipelineS
 fn build_image_barrier(barrier: &ImageBarrier) -> vk::ImageMemoryBarrier2<'static> {
     let ctx = crate::CONTEXT.get().unwrap();
 
-    let images = ctx.images.read().unwrap();
-    let inner_img = images.get(barrier.view.image_key).unwrap();
-    let inner_view = &inner_img.image_views[barrier.view.id];
-
-    let image = inner_img.image;
-    let subresource_range = inner_view.subresources;
-    drop(images);
+    let image_views = ctx.image_views.read().unwrap();
+    let inner_view = image_views.get(barrier.view.id).unwrap();
 
     let mut src_stage = vk::PipelineStageFlags2::empty();
     let mut dst_stage = vk::PipelineStageFlags2::empty();
@@ -598,6 +593,6 @@ fn build_image_barrier(barrier: &ImageBarrier) -> vk::ImageMemoryBarrier2<'stati
         .new_layout(new_layout)
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .image(image)
-        .subresource_range(subresource_range);
+        .image(inner_view.image)
+        .subresource_range(inner_view.subresources);
 }

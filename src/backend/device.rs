@@ -5,18 +5,19 @@ use crate::{
     api::SgpuInititizationInfo,
     backend::{
         commands::Queue,
+        descriptors::BindlessDescriptorSet,
         instance::Instance,
         physical_device::PhysicalDevice,
         resources::{InnerBuffer, InnerImage, InnerImageView},
     },
     commands::QueueType,
+    pipeline::{RasterizationPipeline, RasterizationPipelineDescription},
 };
 use ash::vk::{self, SemaphoreWaitInfo};
 use gpu_allocator::{
     AllocationSizes, AllocatorDebugSettings,
     vulkan::{AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc},
 };
-use smallvec::smallvec;
 
 pub(crate) struct Device {
     pub(crate) handle: ash::Device,
@@ -194,7 +195,7 @@ impl Device {
         let allocation_create_info = AllocationCreateDesc {
             name: "o",
             requirements: memory_requirements,
-            location: desc.memory_type.to_vk_flag(),
+            location: desc.memory_type.to_vk(),
             linear: true,
             allocation_scheme: AllocationScheme::GpuAllocatorManaged,
         };
@@ -248,7 +249,7 @@ impl Device {
         let allocation_create_info = AllocationCreateDesc {
             name: "o",
             requirements: memory_requirements,
-            location: desc.memory_type.to_vk_flag(),
+            location: desc.memory_type.to_vk(),
             linear: true,
             allocation_scheme: AllocationScheme::GpuAllocatorManaged,
         };
@@ -259,20 +260,15 @@ impl Device {
             self.handle.bind_image_memory(image, allocation.memory(), allocation.offset()).expect("Failed to bind image memory");
         }
 
-        let mut image = InnerImage {
+        return InnerImage {
             image: image,
             mem_requirements: memory_requirements,
             allocation: allocation,
             format: desc.format.to_vk(),
-            image_views: smallvec![],
         };
-
-        self.create_image_view(&mut image, &desc.default_view);
-
-        return image;
     }
 
-    pub(crate) fn create_image_view(&self, image: &mut InnerImage, desc: &ImageViewDescription) -> (usize, vk::ImageView) {
+    pub(crate) fn create_image_view(&self, image: &InnerImage, desc: &ImageViewDescription) -> InnerImageView {
         let image_view_create_info = vk::ImageViewCreateInfo::default()
             .image(image.image)
             .view_type(desc.view_type.to_vk())
@@ -286,22 +282,16 @@ impl Device {
             .subresource_range(desc.subresources.to_vk_subresource_range());
 
         let view = unsafe { self.handle.create_image_view(&image_view_create_info, None).expect("Failed to create Image view") };
-        let id = image.image_views.len();
 
-        image.image_views.push(InnerImageView {
+        return InnerImageView {
             view: view,
+            image: image.image,
             subresources: desc.subresources.to_vk_subresource_range(),
-        });
-
-        return (id, view);
+        };
     }
 
     pub(crate) fn destroy_image(&self, image: InnerImage) {
         unsafe {
-            for view in image.image_views {
-                self.handle.destroy_image_view(view.view, None);
-            }
-
             self.handle.destroy_image(image.image, None);
             self.allocator.lock().unwrap().free(image.allocation).expect("Failed to free buffer");
         }
@@ -325,6 +315,110 @@ impl Device {
         }
     }
 
+    pub(crate) fn create_raster_pipeline(&self, layout: &BindlessDescriptorSet, desc: &RasterizationPipelineDescription) -> RasterizationPipeline {
+        assert!(!desc.vertex_shader.is_empty(), "vertex shader SPIR-V is empty");
+        assert!(!desc.fragment_shader.is_empty(), "fragment shader SPIR-V is empty");
+
+        let entry = std::ffi::CString::new("main").unwrap();
+
+        let vert = self.create_shader_module(desc.vertex_shader);
+        let frag = self.create_shader_module(desc.fragment_shader);
+
+        let stages = [
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::VERTEX).module(vert).name(&entry),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::FRAGMENT).module(frag).name(&entry),
+        ];
+
+        // Bindless — no vertex bindings or attributes
+        let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+
+        let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default().topology(desc.topology.to_vk()).primitive_restart_enable(false);
+
+        let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(desc.polygon_mode.to_vk())
+            .cull_mode(desc.cull_mode.to_vk())
+            .front_face(desc.front_face.to_vk())
+            .depth_bias_enable(false)
+            .line_width(1.0);
+
+        let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+            .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+            .sample_shading_enable(false);
+
+        let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
+            .depth_test_enable(desc.depth_stencil.depth_test)
+            .depth_write_enable(desc.depth_stencil.depth_write)
+            .depth_compare_op(desc.depth_stencil.depth_compare.to_vk())
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(desc.depth_stencil.stencil_test);
+
+        let blend_attachments: Vec<vk::PipelineColorBlendAttachmentState> = desc.outputs.color.iter().map(|_| desc.blend_mode.to_vk_attachment()).collect();
+
+        let blend = vk::PipelineColorBlendStateCreateInfo::default().logic_op_enable(false).attachments(&blend_attachments);
+
+        let dynamic_states = [
+            vk::DynamicState::VIEWPORT,
+            vk::DynamicState::SCISSOR,
+        ];
+        let dynamic = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+
+        let viewport_state = vk::PipelineViewportStateCreateInfo::default().viewport_count(1).scissor_count(1);
+
+        let color_formats: Vec<vk::Format> = desc.outputs.color.iter().map(|f| f.to_vk()).collect();
+
+        let depth_format = desc.outputs.depth.map(|f| f.to_vk()).unwrap_or(vk::Format::UNDEFINED);
+
+        let stencil_format = desc.outputs.stencil.map(|f| f.to_vk()).unwrap_or(vk::Format::UNDEFINED);
+
+        let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
+            .color_attachment_formats(&color_formats)
+            .depth_attachment_format(depth_format)
+            .stencil_attachment_format(stencil_format);
+
+        let create_info = vk::GraphicsPipelineCreateInfo::default()
+            .stages(&stages)
+            .vertex_input_state(&vertex_input)
+            .input_assembly_state(&input_assembly)
+            .viewport_state(&viewport_state)
+            .rasterization_state(&rasterization)
+            .multisample_state(&multisample)
+            .depth_stencil_state(&depth_stencil)
+            .color_blend_state(&blend)
+            .dynamic_state(&dynamic)
+            .layout(layout.pipeline_layout)
+            .push_next(&mut rendering_info);
+
+        let handle = unsafe {
+            self.handle
+                .create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&create_info), None)
+                .expect("raster pipeline creation failed")[0]
+        };
+
+        unsafe {
+            self.handle.destroy_shader_module(vert, None);
+            self.handle.destroy_shader_module(frag, None);
+        }
+
+        return RasterizationPipeline { handle };
+    }
+
+    fn create_shader_module(&self, spirv: &[u8]) -> vk::ShaderModule {
+        assert!(spirv.len() % 4 == 0, "SPIR-V must be 4-byte aligned");
+
+        // Safe cast — we just checked alignment
+        let (prefix, words, suffix) = unsafe { spirv.align_to::<u32>() };
+        assert!(prefix.is_empty() && suffix.is_empty(), "SPIR-V alignment failed");
+
+        unsafe {
+            self.handle
+                .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(words), None)
+                .expect("shader module creation failed")
+        }
+    }
+
+    #[inline]
     pub(crate) fn wait_idle(&self) {
         unsafe {
             self.handle.device_wait_idle().unwrap();

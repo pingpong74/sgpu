@@ -1,11 +1,11 @@
 mod common;
 
 use common::*;
-use raw_window_handle::HasWindowHandle;
 use sgpu::*;
 
 struct App {
     swapchain: Swapchain,
+    pipeline: RasterizationPipeline,
 }
 
 impl Application for App {
@@ -23,8 +23,25 @@ impl Application for App {
             },
         );
 
+        let raster_pipe = create_rasterization_pipeline(&RasterizationPipelineDescription {
+            vertex_shader: include_bytes!("shaders/triangle/vertex.spv"),
+            fragment_shader: include_bytes!("shaders/triangle/fragment.spv"),
+            topology: PrimitiveTopology::TriangleList,
+            cull_mode: CullMode::None,
+            front_face: FrontFace::Clockwise,
+            polygon_mode: PolygonMode::Fill,
+            depth_stencil: DepthStencilState::DISABLED,
+            blend_mode: BlendMode::Opaque,
+            outputs: PipelineOutputs {
+                color: &[Format::Rgba16Float],
+                depth: None,
+                stencil: None,
+            },
+        });
+
         return App {
             swapchain: swapchain,
+            pipeline: raster_pipe,
         };
     }
 
@@ -62,7 +79,12 @@ impl Application for App {
                 ],
                 ..Default::default()
             },
-            |_| {},
+            |r| {
+                r.bind_rasterization_pipeline(&self.pipeline);
+                r.set_viewport(size.width, size.height);
+                r.set_scissor(size.width, size.height);
+                r.draw(3, 1, 0, 0);
+            },
         );
 
         recorder.image_barrier(&ImageBarrier {
