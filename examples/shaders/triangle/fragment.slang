@@ -3,4 +3,6 @@ struct FragmentInput {
 };
 
 [shader("fragment")]
-float4 main(FragmentInput in) : SV_Target { return float4(in.color, 1.0); }
+float4 main(FragmentInput input) : SV_Target {
+  return float4(input.color, 1.0);
+}

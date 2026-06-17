@@ -406,17 +406,13 @@ impl Buffer {
     pub fn as_slice<T>(&self) -> &[T] {
         let inner = unsafe { crate::CONTEXT.get().unwrap().get_buffer_inner(self) };
 
-        return unsafe {
-            std::slice::from_raw_parts(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *const T, inner.mem_requirements.size as usize / std::mem::size_of::<T>())
-        };
+        return unsafe { std::slice::from_raw_parts(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *const T, inner.size as usize / std::mem::size_of::<T>()) };
     }
 
     pub fn as_mut_slice<T>(&self) -> &mut [T] {
         let inner = unsafe { crate::CONTEXT.get().unwrap().get_buffer_inner(self) };
 
-        return unsafe {
-            std::slice::from_raw_parts_mut(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *mut T, inner.mem_requirements.size as usize / std::mem::size_of::<T>())
-        };
+        return unsafe { std::slice::from_raw_parts_mut(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *mut T, inner.size as usize / std::mem::size_of::<T>()) };
     }
 }
 

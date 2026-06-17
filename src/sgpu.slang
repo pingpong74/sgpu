@@ -105,7 +105,7 @@ public struct ReadWriteBuffer<T> {
 
   public __subscript(uint index)->T {
     get { return load_indexed(index); }
-    // an issue?
+  // an issue?
     set { store_indexed(newValue, index); }
   }
 

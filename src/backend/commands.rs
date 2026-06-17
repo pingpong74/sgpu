@@ -93,6 +93,7 @@ struct CommandPool {
     buffers: Vec<vk::CommandBuffer>,
     in_flight: usize,
     last_signal: Option<Counter>,
+    queue_type: QueueType,
 }
 
 impl CommandPool {
@@ -104,6 +105,7 @@ impl CommandPool {
             buffers: Vec::new(),
             in_flight: 0,
             last_signal: None,
+            queue_type: queue_type,
         };
     }
 
@@ -148,7 +150,11 @@ impl CommandPool {
                 .begin_command_buffer(buf, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT))
                 .expect("Failed to begin command buffer");
 
-            device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, 0, &[desc.set], &[]);
+            match self.queue_type {
+                QueueType::Compute => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, 0, &[desc.set], &[]),
+                QueueType::Graphics => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, 0, &[desc.set], &[]),
+                _ => {}
+            };
         }
 
         return buf;

@@ -1,4 +1,5 @@
 use crate::{
+    ComputePipeline,
     backend::{Context, InnerSwapchain, Surface},
     commands::{CommandBuffer, QueueType},
     pipeline::{RasterizationPipeline, RasterizationPipelineDescription},
@@ -76,6 +77,10 @@ pub fn create_swapchain<W: HasDisplayHandle + HasWindowHandle>(window: &W, swapc
 
 pub fn create_rasterization_pipeline(raster_pipeline_desc: &RasterizationPipelineDescription) -> RasterizationPipeline {
     return crate::CONTEXT.get().unwrap().create_raster_pipeline(raster_pipeline_desc);
+}
+
+pub fn create_compute_pipeline(shader: &[u8]) -> ComputePipeline {
+    return crate::CONTEXT.get().unwrap().create_compute_pipeline(shader);
 }
 
 /// A simple function to check if the counter has already been signaled

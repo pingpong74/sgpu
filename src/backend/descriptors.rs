@@ -95,7 +95,7 @@ impl BindlessDescriptorSet {
         let push_range = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::ALL,
             offset: 0,
-            size: 128,
+            size: 256,
         };
 
         let pipeline_layout = unsafe {

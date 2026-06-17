@@ -1,7 +1,7 @@
 use std::{mem::ManuallyDrop, sync::Mutex};
 
 use crate::{
-    BufferDescription, ImageDescription, ImageViewDescription, MemoryType,
+    BufferDescription, ComputePipeline, ImageDescription, ImageViewDescription, MemoryType,
     api::SgpuInititizationInfo,
     backend::{
         commands::Queue,
@@ -165,7 +165,7 @@ impl Device {
 
     pub(crate) fn get_queues(&self) -> [Queue; 3] {
         unsafe {
-            let create_semaphore = {
+            let create_semaphore = || {
                 let mut type_info = vk::SemaphoreTypeCreateInfo::default().semaphore_type(vk::SemaphoreType::TIMELINE).initial_value(0);
 
                 let create_info = vk::SemaphoreCreateInfo::default().push_next(&mut type_info);
@@ -175,8 +175,8 @@ impl Device {
 
             return std::array::from_fn(|i| Queue {
                 queue: self.handle.get_device_queue(self.physical_device.queue_families.queue_families_indices[i].unwrap(), 0),
-                queue_type: QueueType::Graphics,
-                semaphore: create_semaphore,
+                queue_type: QueueType::QUEUE_TYPES[i],
+                semaphore: create_semaphore(),
                 cpu_signaled_value: Mutex::new(0),
             });
         }
@@ -215,7 +215,7 @@ impl Device {
 
         return InnerBuffer {
             buffer: buffer,
-            mem_requirements: memory_requirements,
+            size: desc.size,
             device_address: buffer_address,
             mapped_ptr: mapper_ptr,
             allocation,
@@ -288,6 +288,12 @@ impl Device {
             image: image.image,
             subresources: desc.subresources.to_vk_subresource_range(),
         };
+    }
+
+    pub(crate) fn destroy_image_view(&self, image_view: InnerImageView) {
+        unsafe {
+            self.handle.destroy_image_view(image_view.view, None);
+        }
     }
 
     pub(crate) fn destroy_image(&self, image: InnerImage) {
@@ -407,13 +413,10 @@ impl Device {
     fn create_shader_module(&self, spirv: &[u8]) -> vk::ShaderModule {
         assert!(spirv.len() % 4 == 0, "SPIR-V must be 4-byte aligned");
 
-        // Safe cast — we just checked alignment
-        let (prefix, words, suffix) = unsafe { spirv.align_to::<u32>() };
-        assert!(prefix.is_empty() && suffix.is_empty(), "SPIR-V alignment failed");
-
+        let words: Vec<u32> = spirv.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
         unsafe {
             self.handle
-                .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(words), None)
+                .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None)
                 .expect("shader module creation failed")
         }
     }
@@ -423,6 +426,29 @@ impl Device {
         unsafe {
             self.handle.device_wait_idle().unwrap();
         }
+    }
+
+    pub(crate) fn create_compute_pipeline(&self, layout: &BindlessDescriptorSet, shader: &[u8]) -> ComputePipeline {
+        let entry = std::ffi::CString::new("main").unwrap();
+        let shader = self.create_shader_module(shader);
+
+        let shader_stage_info = vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::COMPUTE).module(shader).name(&entry);
+
+        let pipeline_info = [vk::ComputePipelineCreateInfo::default().layout(layout.pipeline_layout).stage(shader_stage_info)];
+
+        let pipeline = unsafe {
+            self.handle
+                .create_compute_pipelines(vk::PipelineCache::null(), &pipeline_info, None)
+                .expect("Failed to create compute pipeline")
+        }[0];
+
+        unsafe {
+            self.handle.destroy_shader_module(shader, None);
+        }
+
+        return ComputePipeline {
+            handle: pipeline,
+        };
     }
 
     pub(crate) fn wait_queue(&self, queue: &Queue, value: u64) {

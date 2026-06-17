@@ -30,7 +30,7 @@ impl Application for App {
             window,
             &SwapchainDescription {
                 format: Format::Rgba16Float,
-                frames_in_flight: 2,
+                frames_in_flight: 1,
                 width: size.width,
                 height: size.height,
             },
@@ -89,7 +89,7 @@ impl Application for App {
         };
     }
 
-    fn render(&mut self, window: &winit::window::Window, _dt: Duration, time: Duration) {
+    fn render(&mut self, window: &winit::window::Window, dt: Duration, time: Duration) {
         let size = window.inner_size();
 
         {
@@ -106,6 +106,8 @@ impl Application for App {
         }
 
         let swapchain_img = self.swapchain.acquire_image();
+
+        println!("{}", 1.0 / dt.as_secs_f32());
 
         let mut recorder = record(QueueType::Graphics);
 

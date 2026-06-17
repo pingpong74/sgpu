@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 pub(crate) struct InnerBuffer {
     pub(crate) buffer: vk::Buffer,
-    pub(crate) mem_requirements: vk::MemoryRequirements,
+    pub(crate) size: u64,
     pub(crate) device_address: u64,
     pub(crate) mapped_ptr: Option<*mut u8>,
     pub(crate) allocation: Allocation,

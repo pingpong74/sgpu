@@ -15,6 +15,7 @@ pub struct SwapchainDescription {
 pub struct AcquiredImage {
     pub(crate) image: Image,
     pub(crate) image_index: usize,
+    pub(crate) slot: usize,
     pub(crate) acquire_semaphore: ash::vk::Semaphore,
     pub(crate) present_semaphore: ash::vk::Semaphore,
 }

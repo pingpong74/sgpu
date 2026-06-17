@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, BufferDescription, Counter, Image, ImageDescription, ImageView, ImageViewDescription,
+    Buffer, BufferDescription, BufferUsage, ComputePipeline, Counter, Image, ImageDescription, ImageUsage, ImageView, ImageViewDescription,
     api::SgpuInititizationInfo,
     backend::{
         commands::*,
@@ -56,7 +56,9 @@ impl Context {
         let buffer = inner_buffer.buffer;
         let id = self.buffers.write().unwrap().insert(inner_buffer);
         // Janky stuff
-        self.bindless_descriptor_set.write_buffer(&self.device, buffer, id.data().as_ffi() as u32);
+        if desc.usage.contains(BufferUsage::STORAGE) {
+            self.bindless_descriptor_set.write_buffer(&self.device, buffer, id.data().as_ffi() as u32);
+        }
 
         return Buffer { id: id };
     }
@@ -78,8 +80,13 @@ impl Context {
         let raw = view.view;
         let id = self.images.write().unwrap().insert(inner_image);
 
-        self.bindless_descriptor_set.write_sampled_image(&self.device, view.view, id.data().as_ffi() as u32);
-        self.bindless_descriptor_set.write_storage_image(&self.device, view.view, id.data().as_ffi() as u32);
+        if desc.usage.contains(ImageUsage::SAMPLED) {
+            self.bindless_descriptor_set.write_sampled_image(&self.device, view.view, id.data().as_ffi() as u32);
+        }
+
+        if desc.usage.contains(ImageUsage::STORAGE) {
+            self.bindless_descriptor_set.write_storage_image(&self.device, view.view, id.data().as_ffi() as u32);
+        }
 
         return Image {
             default_view: ImageView {
@@ -107,6 +114,10 @@ impl Context {
 
     pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline {
         return self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec);
+    }
+
+    pub(crate) fn create_compute_pipeline(&self, shader: &[u8]) -> ComputePipeline {
+        return self.device.create_compute_pipeline(&self.bindless_descriptor_set, shader);
     }
 
     pub(crate) fn poll(&self, counter: Counter) -> bool {
@@ -151,6 +162,7 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
+        self.image_views.write().unwrap().drain().for_each(|(_, view)| self.device.destroy_image_view(view));
         self.buffers.write().unwrap().drain().for_each(|(_, buffer)| self.device.destroy_buffer(buffer));
         self.images.write().unwrap().drain().for_each(|(_, img)| self.device.destroy_image(img));
 

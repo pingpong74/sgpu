@@ -251,4 +251,14 @@ impl Drop for RasterizationPipeline {
     }
 }
 
-pub struct ComputePipeline {}
+pub struct ComputePipeline {
+    pub(crate) handle: vk::Pipeline,
+}
+
+impl Drop for ComputePipeline {
+    fn drop(&mut self) {
+        unsafe {
+            crate::CONTEXT.get().unwrap().device.handle.destroy_pipeline(self.handle, None);
+        }
+    }
+}

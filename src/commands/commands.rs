@@ -301,6 +301,52 @@ impl CommandBuffer {
         });
     }
 
+    pub fn bind_compute_pipeline(&mut self, compute_pipeline: &ComputePipeline) {
+        unsafe {
+            crate::CONTEXT
+                .get()
+                .unwrap()
+                .device
+                .handle
+                .cmd_bind_pipeline(self.handle, vk::PipelineBindPoint::COMPUTE, compute_pipeline.handle);
+        }
+    }
+
+    pub fn push_constants<T: Copy>(&mut self, data: &T) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        let bytes = unsafe { std::slice::from_raw_parts(data as *const T as *const u8, std::mem::size_of::<T>()) };
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_push_constants(self.handle, ctx.bindless_descriptor_set.pipeline_layout, vk::ShaderStageFlags::ALL, 0, bytes);
+        }
+    }
+
+    pub fn dispatch(&mut self, x: u32, y: u32, z: u32) {
+        unsafe {
+            crate::CONTEXT.get().unwrap().device.handle.cmd_dispatch(self.handle, x, y, z);
+        }
+    }
+
+    pub fn copy_buffer(&mut self, src_buffer: Buffer, dst_buffer: Buffer, src_offset: u64, dst_offset: u64, size: u64) {
+        let ctx = crate::CONTEXT.get().unwrap();
+
+        unsafe {
+            let src = ctx.get_buffer_inner(&src_buffer);
+            let dst = ctx.get_buffer_inner(&dst_buffer);
+            ctx.device.handle.cmd_copy_buffer(
+                self.handle,
+                src.buffer,
+                dst.buffer,
+                &[vk::BufferCopy {
+                    size,
+                    src_offset,
+                    dst_offset,
+                }],
+            );
+        }
+    }
+
     // TODO: use a scratch?
     // give seperate struct or smt man
     pub fn begin_rendering<F: FnOnce(RenderRecorder)>(&mut self, rendering_begin_info: &RenderingBeginInfo, f: F) {
