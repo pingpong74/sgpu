@@ -267,8 +267,7 @@ impl CommandBuffer {
         let ctx = crate::CONTEXT.get().unwrap();
 
         unsafe {
-            let buffer = ctx.get_buffer_inner(buffer);
-            ctx.device.handle.cmd_fill_buffer(self.handle, buffer.buffer, offset, size, data);
+            ctx.device.handle.cmd_fill_buffer(self.handle, buffer.raw, offset, size, data);
         }
     }
 
@@ -332,18 +331,100 @@ impl CommandBuffer {
         let ctx = crate::CONTEXT.get().unwrap();
 
         unsafe {
-            let src = ctx.get_buffer_inner(&src_buffer);
-            let dst = ctx.get_buffer_inner(&dst_buffer);
             ctx.device.handle.cmd_copy_buffer(
                 self.handle,
-                src.buffer,
-                dst.buffer,
+                src_buffer.raw,
+                dst_buffer.raw,
                 &[vk::BufferCopy {
                     size,
                     src_offset,
                     dst_offset,
                 }],
             );
+        }
+    }
+
+    pub fn draw_indirect(&mut self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device.handle.cmd_draw_indirect(self.handle, buffer.raw, offset, draw_count, stride);
+        }
+    }
+
+    pub fn draw_indexed_indirect(&mut self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device.handle.cmd_draw_indexed_indirect(self.handle, buffer.raw, offset, draw_count, stride);
+        }
+    }
+
+    pub fn draw_indirect_count(&mut self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_draw_indirect_count(self.handle, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
+        }
+    }
+
+    pub fn draw_indexed_indirect_count(&mut self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_draw_indexed_indirect_count(self.handle, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
+        }
+    }
+
+    pub fn dispatch_indirect(&mut self, buffer: &Buffer, offset: u64) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device.handle.cmd_dispatch_indirect(self.handle, buffer.raw, offset);
+        }
+    }
+
+    pub fn update_buffer<T: Copy>(&mut self, buffer: &Buffer, offset: u64, data: &[T]) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        let ptr = data.as_ptr() as *const u8;
+        let len = data.len() * std::mem::size_of::<T>();
+        unsafe {
+            ctx.device.handle.cmd_update_buffer(self.handle, buffer.raw, offset, std::slice::from_raw_parts(ptr, len));
+        }
+    }
+
+    pub fn copy_buffer_to_image(&mut self, src_buffer: &Buffer, dst_image: &Image, regions: &[BufferImageCopyRegion]) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
+        unsafe {
+            ctx.device.handle.cmd_copy_buffer_to_image(self.handle, src_buffer.raw, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk);
+        }
+    }
+
+    pub fn copy_image_to_buffer(&mut self, src_image: &Image, dst_buffer: &Buffer, regions: &[BufferImageCopyRegion]) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
+        unsafe {
+            ctx.device.handle.cmd_copy_image_to_buffer(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_buffer.raw, &regions_vk);
+        }
+    }
+
+    pub fn copy_image(&mut self, src_image: &Image, dst_image: &Image, region: &ImageCopyRegion) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        let region_vk = region.to_vk();
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_copy_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, std::slice::from_ref(&region_vk));
+        }
+    }
+
+    pub fn blit_image(&mut self, src_image: &Image, dst_image: &Image, regions: &[BlitRegion], filter: Filter) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        let regions_vk: SmallVec<[vk::ImageBlit; 4]> = regions.iter().map(|r| r.to_vk()).collect();
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_blit_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk, filter.to_vk());
         }
     }
 

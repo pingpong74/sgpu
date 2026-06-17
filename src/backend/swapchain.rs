@@ -192,12 +192,14 @@ impl InnerSwapchain {
         let ids = inner_images
             .into_iter()
             .map(|img| {
+                let raw_image = img.image;
                 let inner_view = ctx.device.create_image_view(&img, &ImageViewDescription::default());
                 let raw = inner_view.view;
                 let view_id = ctx.image_views.write().unwrap().insert(inner_view);
                 let image_id = ctx.images.write().unwrap().insert(img);
 
                 Image {
+                    raw: raw_image,
                     default_view: ImageView {
                         raw,
                         id: view_id,
@@ -431,14 +433,16 @@ impl InnerSwapchain {
         let ids = inner_images
             .into_iter()
             .map(|img| {
+                let raw_image = img.image;
                 let inner_view = ctx.device.create_image_view(&img, &ImageViewDescription::default());
                 let raw = inner_view.view;
                 let view_id = ctx.image_views.write().unwrap().insert(inner_view);
                 let image_id = ctx.images.write().unwrap().insert(img);
 
                 Image {
+                    raw: raw_image,
                     default_view: ImageView {
-                        raw: raw,
+                        raw,
                         id: view_id,
                     },
                     id: image_id,

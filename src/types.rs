@@ -395,6 +395,7 @@ impl Default for ImageViewDescription {
 /// A vulkan Buffer
 #[derive(Clone, Copy, Default)]
 pub struct Buffer {
+    pub(crate) raw: vk::Buffer,
     pub(crate) id: DefaultKey,
 }
 
@@ -419,6 +420,7 @@ impl Buffer {
 /// A Vulkan image, used to create and use image views
 #[derive(Clone, Copy, Default)]
 pub struct Image {
+    pub(crate) raw: vk::Image,
     pub(crate) default_view: ImageView,
     pub(crate) id: DefaultKey,
 }
@@ -438,6 +440,88 @@ impl Image {
 pub struct ImageView {
     pub(crate) raw: vk::ImageView,
     pub(crate) id: DefaultKey,
+}
+
+/// A region for buffer-to-image or image-to-buffer copy operations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BufferImageCopyRegion {
+    pub buffer_offset: u64,
+    pub buffer_row_length: u32,
+    pub buffer_image_height: u32,
+    pub image_subresource: ImageSubresources,
+    pub image_offset: Offset3D,
+    pub image_extent: Extent3D,
+}
+
+impl BufferImageCopyRegion {
+    pub(crate) fn to_vk(&self) -> vk::BufferImageCopy {
+        vk::BufferImageCopy {
+            buffer_offset: self.buffer_offset,
+            buffer_row_length: self.buffer_row_length,
+            buffer_image_height: self.buffer_image_height,
+            image_subresource: self.image_subresource.to_vk_subresource_layers(),
+            image_offset: self.image_offset.to_vk(),
+            image_extent: self.image_extent.to_vk(),
+            ..Default::default()
+        }
+    }
+}
+
+/// A region for image-to-image copy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ImageCopyRegion {
+    pub src_subresource: ImageSubresources,
+    pub src_offset: Offset3D,
+    pub dst_subresource: ImageSubresources,
+    pub dst_offset: Offset3D,
+    pub extent: Extent3D,
+}
+
+impl ImageCopyRegion {
+    pub(crate) fn to_vk(&self) -> vk::ImageCopy {
+        vk::ImageCopy {
+            src_subresource: self.src_subresource.to_vk_subresource_layers(),
+            src_offset: self.src_offset.to_vk(),
+            dst_subresource: self.dst_subresource.to_vk_subresource_layers(),
+            dst_offset: self.dst_offset.to_vk(),
+            extent: self.extent.to_vk(),
+        }
+    }
+}
+
+/// A region for blit operations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlitRegion {
+    pub src_subresource: ImageSubresources,
+    pub src_offsets: [Offset3D; 2],
+    pub dst_subresource: ImageSubresources,
+    pub dst_offsets: [Offset3D; 2],
+}
+
+impl BlitRegion {
+    pub(crate) fn to_vk(&self) -> vk::ImageBlit {
+        vk::ImageBlit {
+            src_subresource: self.src_subresource.to_vk_subresource_layers(),
+            src_offsets: [self.src_offsets[0].to_vk(), self.src_offsets[1].to_vk()],
+            dst_subresource: self.dst_subresource.to_vk_subresource_layers(),
+            dst_offsets: [self.dst_offsets[0].to_vk(), self.dst_offsets[1].to_vk()],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Filter {
+    Nearest,
+    Linear,
+}
+
+impl Filter {
+    pub(crate) fn to_vk(&self) -> vk::Filter {
+        match self {
+            Self::Nearest => vk::Filter::NEAREST,
+            Self::Linear => vk::Filter::LINEAR,
+        }
+    }
 }
 
 /// Used for sync. Every submit returns a counter

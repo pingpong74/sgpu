@@ -60,7 +60,7 @@ impl Context {
             self.bindless_descriptor_set.write_buffer(&self.device, buffer, id.data().as_ffi() as u32);
         }
 
-        return Buffer { id: id };
+        return Buffer { raw: buffer, id: id };
     }
 
     pub(crate) unsafe fn get_buffer_inner(&self, id: &Buffer) -> &InnerBuffer {
@@ -76,6 +76,7 @@ impl Context {
 
     pub(crate) fn create_image(&self, desc: &ImageDescription) -> Image {
         let inner_image = self.device.create_image(desc);
+        let raw_image = inner_image.image;
         let view = self.device.create_image_view(&inner_image, &desc.default_view);
         let raw = view.view;
         let id = self.images.write().unwrap().insert(inner_image);
@@ -89,6 +90,7 @@ impl Context {
         }
 
         return Image {
+            raw: raw_image,
             default_view: ImageView {
                 raw: raw,
                 id: self.image_views.write().unwrap().insert(view),

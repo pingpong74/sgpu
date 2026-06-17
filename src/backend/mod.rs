@@ -4,6 +4,7 @@ mod descriptors;
 mod device;
 mod instance;
 mod physical_device;
+mod query;
 mod resources;
 mod swapchain;
 

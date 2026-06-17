@@ -1,4 +1,4 @@
-use crate::RasterizationPipeline;
+use crate::{Buffer, RasterizationPipeline};
 use ash::vk;
 
 pub struct RenderRecorder {
@@ -79,6 +79,38 @@ impl RenderRecorder {
                     },
                 }],
             );
+        }
+    }
+
+    pub fn draw_indirect(&self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device.handle.cmd_draw_indirect(self.cmd_buffer, buffer.raw, offset, draw_count, stride);
+        }
+    }
+
+    pub fn draw_indexed_indirect(&self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device.handle.cmd_draw_indexed_indirect(self.cmd_buffer, buffer.raw, offset, draw_count, stride);
+        }
+    }
+
+    pub fn draw_indirect_count(&self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_draw_indirect_count(self.cmd_buffer, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
+        }
+    }
+
+    pub fn draw_indexed_indirect_count(&self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
+        let ctx = crate::CONTEXT.get().unwrap();
+        unsafe {
+            ctx.device
+                .handle
+                .cmd_draw_indexed_indirect_count(self.cmd_buffer, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
         }
     }
 }
