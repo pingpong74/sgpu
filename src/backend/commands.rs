@@ -152,7 +152,10 @@ impl CommandPool {
 
             match self.queue_type {
                 QueueType::Compute => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, 0, &[desc.set], &[]),
-                QueueType::Graphics => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, 0, &[desc.set], &[]),
+                QueueType::Graphics => {
+                    device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, 0, &[desc.set], &[]);
+                    device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, 0, &[desc.set], &[]);
+                }
                 _ => {}
             };
         }

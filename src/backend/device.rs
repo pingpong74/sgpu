@@ -82,7 +82,17 @@ impl Device {
 
         let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
 
-        let mut indexing_features = vk::PhysicalDeviceDescriptorIndexingFeatures::default()
+        let mut sync2 = vk::PhysicalDeviceSynchronization2Features::default().synchronization2(true);
+        let mut vk_features_11 = vk::PhysicalDeviceVulkan11Features::default()
+            .shader_draw_parameters(true)
+            .variable_pointers(true)
+            .variable_pointers_storage_buffer(true);
+
+        let mut vk_features_12 = vk::PhysicalDeviceVulkan12Features::default()
+            .draw_indirect_count(true)
+            .buffer_device_address(true)
+            .timeline_semaphore(true)
+            .descriptor_indexing(true)
             .shader_sampled_image_array_non_uniform_indexing(true)
             .descriptor_binding_partially_bound(true)
             .runtime_descriptor_array(true)
@@ -93,14 +103,6 @@ impl Device {
             .descriptor_binding_storage_texel_buffer_update_after_bind(true)
             .descriptor_binding_uniform_buffer_update_after_bind(true)
             .descriptor_binding_uniform_texel_buffer_update_after_bind(true);
-
-        let mut sync2 = vk::PhysicalDeviceSynchronization2Features::default().synchronization2(true);
-        let mut timeline_sem = vk::PhysicalDeviceTimelineSemaphoreFeatures::default().timeline_semaphore(true);
-        let mut buffer_device_address = vk::PhysicalDeviceBufferDeviceAddressFeatures::default().buffer_device_address(true);
-        let mut vk_features_11 = vk::PhysicalDeviceVulkan11Features::default()
-            .shader_draw_parameters(true)
-            .variable_pointers(true)
-            .variable_pointers_storage_buffer(true);
 
         // Ray tracing
         let mut accel_struct_features = vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default();
@@ -121,12 +123,10 @@ impl Device {
         }
 
         let mut features2 = vk::PhysicalDeviceFeatures2::default()
-            .push_next(&mut indexing_features)
             .push_next(&mut dynamic_rendering_features)
             .push_next(&mut sync2)
-            .push_next(&mut timeline_sem)
-            .push_next(&mut buffer_device_address)
             .push_next(&mut vk_features_11)
+            .push_next(&mut vk_features_12)
             .push_next(&mut mesh_shader_features)
             .features(features);
 

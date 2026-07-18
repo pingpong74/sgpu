@@ -443,7 +443,7 @@ pub struct ImageView {
 }
 
 /// A region for buffer-to-image or image-to-buffer copy operations.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BufferImageCopyRegion {
     pub buffer_offset: u64,
     pub buffer_row_length: u32,
@@ -502,9 +502,15 @@ impl BlitRegion {
     pub(crate) fn to_vk(&self) -> vk::ImageBlit {
         vk::ImageBlit {
             src_subresource: self.src_subresource.to_vk_subresource_layers(),
-            src_offsets: [self.src_offsets[0].to_vk(), self.src_offsets[1].to_vk()],
+            src_offsets: [
+                self.src_offsets[0].to_vk(),
+                self.src_offsets[1].to_vk(),
+            ],
             dst_subresource: self.dst_subresource.to_vk_subresource_layers(),
-            dst_offsets: [self.dst_offsets[0].to_vk(), self.dst_offsets[1].to_vk()],
+            dst_offsets: [
+                self.dst_offsets[0].to_vk(),
+                self.dst_offsets[1].to_vk(),
+            ],
         }
     }
 }
