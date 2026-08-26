@@ -21,6 +21,8 @@ impl PhysicalDevice {
     pub(crate) fn select_physical_device(instance: &Instance, required_extensions: &[*const i8]) -> Option<PhysicalDevice> {
         let devices = unsafe { instance.handle.enumerate_physical_devices().expect("Failed to enumerate physical devices") };
 
+        println!("{}", devices.len());
+
         let mut best_device: Option<(i32, PhysicalDevice)> = None;
 
         for device in devices {
@@ -65,43 +67,47 @@ impl PhysicalDevice {
     fn get_queue_families(instance: &Instance, physical_device: ash::vk::PhysicalDevice) -> Option<QueueFamilyIndices> {
         let queue_families = unsafe { instance.handle.get_physical_device_queue_family_properties(physical_device) };
 
-        let mut indices = QueueFamilyIndices {
-            queue_families_indices: [None; 3],
-        };
+        let mut graphics = None;
+        let mut compute = None;
+        let mut transfer = None;
 
         for (i, family) in queue_families.iter().enumerate() {
-            // Graphics
-            if family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS) && indices.queue_families_indices[QueueType::Graphics as usize].is_none() {
-                indices.queue_families_indices[QueueType::Graphics as usize] = Some(i as u32);
+            let index = i as u32;
+
+            // Graphics queue.
+            if family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS) && graphics.is_none() {
+                graphics = Some(index);
             }
 
-            // Compute (dedicated if possible)
-            if family.queue_flags.contains(ash::vk::QueueFlags::COMPUTE)
-                && !family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS)
-                && indices.queue_families_indices[QueueType::Compute as usize].is_none()
-            {
-                indices.queue_families_indices[QueueType::Compute as usize] = Some(i as u32);
+            // Prefer dedicated compute.
+            if family.queue_flags.contains(ash::vk::QueueFlags::COMPUTE) && !family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS) && compute.is_none() {
+                compute = Some(index);
             }
 
-            // Transfer (dedicated if possible)
+            // Prefer dedicated transfer.
             if family.queue_flags.contains(ash::vk::QueueFlags::TRANSFER)
                 && !family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS)
                 && !family.queue_flags.contains(ash::vk::QueueFlags::COMPUTE)
-                && indices.queue_families_indices[QueueType::Transfer as usize].is_none()
+                && transfer.is_none()
             {
-                indices.queue_families_indices[QueueType::Transfer as usize] = Some(i as u32);
-            }
-
-            if indices.is_complete() {
-                break;
+                transfer = Some(index);
             }
         }
 
-        if indices.is_complete() {
-            return Some(indices);
-        } else {
-            return None;
-        }
+        // Fall back to less specialized queues.
+        let graphics = graphics?;
+
+        let compute = compute.unwrap_or(graphics);
+
+        let transfer = transfer.unwrap_or(compute);
+
+        Some(QueueFamilyIndices {
+            queue_families_indices: [
+                Some(graphics),
+                Some(compute),
+                Some(transfer),
+            ],
+        })
     }
 
     fn check_device_extension_support(instance: &Instance, device: ash::vk::PhysicalDevice, required_extensions: &[*const i8]) -> bool {
