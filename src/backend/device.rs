@@ -4,7 +4,7 @@ use crate::{
     BufferDescription, ComputePipeline, ImageDescription, ImageViewDescription, MemoryType,
     api::SgpuInititizationInfo,
     backend::{
-        commands::Queue,
+        commands::{CommandPoolRing, Queue, Queues, ThreadCommandPools},
         descriptors::BindlessDescriptorSet,
         instance::Instance,
         physical_device::PhysicalDevice,
@@ -18,12 +18,13 @@ use gpu_allocator::{
     AllocationSizes, AllocatorDebugSettings,
     vulkan::{AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc},
 };
+use smallvec::{SmallVec, smallvec};
 
 pub(crate) struct Device {
     pub(crate) handle: ash::Device,
     pub(crate) physical_device: PhysicalDevice,
     pub(crate) allocator: ManuallyDrop<Mutex<Allocator>>,
-    pub(crate) queue_indices: [u32; 3],
+    pub(crate) queue_families: SmallVec<[u32; 3]>,
 }
 
 impl Device {
@@ -62,12 +63,7 @@ impl Device {
             dev.unwrap()
         };
 
-        let unique_families: Vec<u32> = {
-            let mut v: Vec<_> = physical_device.queue_families.queue_families_indices.iter().map(|q| q.unwrap()).collect();
-            v.sort();
-            v.dedup();
-            v
-        };
+        let unique_families = physical_device.queue_families.get_familes();
 
         // Queue priorities (all same)
         let priorities = [1.0_f32];
@@ -156,15 +152,20 @@ impl Device {
         .expect("Failed to create allocator");
 
         return Device {
-            queue_indices: std::array::from_fn(|i| physical_device.queue_families.queue_families_indices[i].unwrap()),
+            queue_families: unique_families,
             handle: dev,
             allocator: ManuallyDrop::new(Mutex::new(allocator)),
             physical_device: physical_device,
         };
     }
 
-    pub(crate) fn get_queues(&self) -> [Queue; 3] {
-        unsafe {
+    pub(crate) fn get_queues(&self) -> Queues {
+        // Graphics, Compute, Transfer
+        let mut queue_type_to_queue: [usize; 3] = [0; 3];
+        let mut queue_families: SmallVec<[u32; 3]> = smallvec![];
+        let mut queues: SmallVec<[Queue; 3]> = smallvec![];
+
+        let create_queue = |family: u32, queue_type: QueueType| unsafe {
             let create_semaphore = || {
                 let mut type_info = vk::SemaphoreTypeCreateInfo::default().semaphore_type(vk::SemaphoreType::TIMELINE).initial_value(0);
 
@@ -173,21 +174,84 @@ impl Device {
                 self.handle.create_semaphore(&create_info, None).expect("Failed to create timeline semaphore")
             };
 
-            return std::array::from_fn(|i| Queue {
-                queue: self.handle.get_device_queue(self.physical_device.queue_families.queue_families_indices[i].unwrap(), 0),
-                queue_type: QueueType::QUEUE_TYPES[i],
+            Queue {
+                queue: self.handle.get_device_queue(family, 0),
+                queue_type: queue_type,
                 semaphore: create_semaphore(),
                 cpu_signaled_value: Mutex::new(0),
-            });
+            }
+        };
+
+        let mut len = 0;
+
+        if let Some(graphics_family) = self.physical_device.queue_families.graphics {
+            queue_type_to_queue[0] = len;
+            queue_families.push(graphics_family);
+            queues.push(create_queue(graphics_family, QueueType::Graphics));
+            len += 1;
         }
+
+        if let Some(compute_family) = self.physical_device.queue_families.compute {
+            queue_type_to_queue[1] = len;
+            queue_families.push(compute_family);
+            queues.push(create_queue(compute_family, QueueType::Compute));
+            len += 1;
+        }
+
+        if let Some(transfer_family) = self.physical_device.queue_families.transfer {
+            queue_type_to_queue[2] = len;
+            queue_families.push(transfer_family);
+            queues.push(create_queue(transfer_family, QueueType::Transfer));
+        }
+
+        return Queues {
+            queue_type_to_queue,
+            queues,
+        };
+    }
+
+    pub(crate) fn create_thread_command_pools(&self) -> ThreadCommandPools {
+        // Graphics, Compute, Transfer
+        let mut queue_type_to_queue: [usize; 3] = [0; 3];
+        let mut rings: SmallVec<[CommandPoolRing; 3]> = smallvec![];
+
+        let mut len = 0;
+
+        if let Some(graphics_family) = self.physical_device.queue_families.graphics {
+            queue_type_to_queue[0] = len;
+            rings.push(CommandPoolRing::new(QueueType::Graphics, graphics_family, 3));
+            len += 1;
+        }
+
+        if let Some(compute_family) = self.physical_device.queue_families.compute {
+            queue_type_to_queue[1] = len;
+            rings.push(CommandPoolRing::new(QueueType::Compute, compute_family, 3));
+            len += 1;
+        }
+
+        if let Some(transfer_family) = self.physical_device.queue_families.transfer {
+            queue_type_to_queue[2] = len;
+            rings.push(CommandPoolRing::new(QueueType::Transfer, transfer_family, 3));
+        }
+
+        return ThreadCommandPools {
+            queue_type_to_queue,
+            rings,
+        };
     }
 
     pub(crate) fn create_buffer(&self, desc: &BufferDescription) -> InnerBuffer {
+        let sharing_mode = if self.queue_families.len() == 1 {
+            vk::SharingMode::EXCLUSIVE
+        } else {
+            vk::SharingMode::CONCURRENT
+        };
+
         let buffer_create_info = vk::BufferCreateInfo::default()
             .usage(desc.usage.to_vk() | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
             .size(desc.size)
-            .sharing_mode(vk::SharingMode::CONCURRENT)
-            .queue_family_indices(&self.queue_indices);
+            .sharing_mode(sharing_mode)
+            .queue_family_indices(&self.queue_families);
 
         let buffer = unsafe { self.handle.create_buffer(&buffer_create_info, None).expect("Failed to create buffer ") };
         let memory_requirements = unsafe { self.handle.get_buffer_memory_requirements(buffer) };
@@ -230,6 +294,12 @@ impl Device {
     }
 
     pub(crate) fn create_image(&self, desc: &ImageDescription) -> InnerImage {
+        let sharing_mode = if self.queue_families.len() == 1 {
+            vk::SharingMode::EXCLUSIVE
+        } else {
+            vk::SharingMode::CONCURRENT
+        };
+
         let image_create_info = vk::ImageCreateInfo::default()
             .flags(desc.create_flags.to_vk())
             .usage(desc.usage.to_vk())
@@ -240,7 +310,9 @@ impl Device {
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .image_type(desc.image_type.to_vk())
             .samples(desc.samples.to_vk())
-            .tiling(vk::ImageTiling::OPTIMAL);
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .sharing_mode(sharing_mode)
+            .queue_family_indices(&self.queue_families);
 
         let image = unsafe { self.handle.create_image(&image_create_info, None).expect("Failed to create Image") };
 
@@ -304,10 +376,10 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) fn create_command_pool(&self, queue_type: QueueType) -> vk::CommandPool {
+    pub(crate) fn create_command_pool(&self, queue_family_index: u32) -> vk::CommandPool {
         return unsafe {
             self.handle
-                .create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(self.queue_indices[queue_type as usize]), None)
+                .create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index), None)
                 .expect("Failed to create command pool")
         };
     }

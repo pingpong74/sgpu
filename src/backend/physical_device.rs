@@ -1,15 +1,26 @@
 use ash::vk;
+use smallvec::*;
 
-use crate::{backend::instance::Instance, commands::QueueType};
+use crate::backend::instance::Instance;
 
 pub(crate) struct QueueFamilyIndices {
-    pub(crate) queue_families_indices: [Option<u32>; 3],
+    pub(crate) graphics: Option<u32>,
+    pub(crate) compute: Option<u32>,
+    pub(crate) transfer: Option<u32>,
 }
 
 impl QueueFamilyIndices {
-    fn is_complete(&self) -> bool {
-        return self.queue_families_indices.iter().all(|q| q.is_some());
+    pub(crate) fn get_familes(&self) -> SmallVec<[u32; 3]> {
+        let mut families = smallvec![];
+
+        self.graphics.map(|f| families.push(f));
+        self.compute.map(|f| families.push(f));
+        self.transfer.map(|f| families.push(f));
+
+        return families;
     }
+
+    fn is_complete(&self) -> bool { return self.graphics.is_some() && self.compute.is_some() && self.transfer.is_some(); }
 }
 
 pub(crate) struct PhysicalDevice {
@@ -20,8 +31,6 @@ pub(crate) struct PhysicalDevice {
 impl PhysicalDevice {
     pub(crate) fn select_physical_device(instance: &Instance, required_extensions: &[*const i8]) -> Option<PhysicalDevice> {
         let devices = unsafe { instance.handle.enumerate_physical_devices().expect("Failed to enumerate physical devices") };
-
-        println!("{}", devices.len());
 
         let mut best_device: Option<(i32, PhysicalDevice)> = None;
 
@@ -36,15 +45,15 @@ impl PhysicalDevice {
                     continue;
                 }
 
-                // Score device: discrete = 1000, integrated = 100, others = 10
-                let score = match props.properties.device_type {
-                    ash::vk::PhysicalDeviceType::DISCRETE_GPU => 1000,
-                    ash::vk::PhysicalDeviceType::INTEGRATED_GPU => 100,
-                    _ => 10,
+                let score = {
+                    let dev_score = match props.properties.device_type {
+                        ash::vk::PhysicalDeviceType::DISCRETE_GPU => 1000,
+                        ash::vk::PhysicalDeviceType::INTEGRATED_GPU => 100,
+                        _ => 10,
+                    };
+                    let completeness_score = if qf.is_complete() { 100 } else { 10 };
+                    completeness_score + dev_score
                 };
-
-                // Prefer larger max image dimension as tiebreaker
-                let score = score + props.properties.limits.max_image_dimension2_d as i32;
 
                 let candidate = PhysicalDevice {
                     handle: device,
@@ -94,20 +103,11 @@ impl PhysicalDevice {
             }
         }
 
-        // Fall back to less specialized queues.
-        let graphics = graphics?;
-
-        let compute = compute.unwrap_or(graphics);
-
-        let transfer = transfer.unwrap_or(compute);
-
-        Some(QueueFamilyIndices {
-            queue_families_indices: [
-                Some(graphics),
-                Some(compute),
-                Some(transfer),
-            ],
-        })
+        return Some(QueueFamilyIndices {
+            graphics,
+            compute,
+            transfer,
+        });
     }
 
     fn check_device_extension_support(instance: &Instance, device: ash::vk::PhysicalDevice, required_extensions: &[*const i8]) -> bool {

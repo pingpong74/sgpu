@@ -1,7 +1,7 @@
 use ash::vk;
 use gpu_allocator::vulkan::Allocation;
-use smallvec::SmallVec;
 
+#[allow(unused)]
 pub(crate) struct InnerBuffer {
     pub(crate) buffer: vk::Buffer,
     pub(crate) size: u64,
@@ -17,6 +17,7 @@ pub(crate) struct InnerImageView {
 }
 
 // need to handle views some how tho
+#[allow(unused)]
 pub(crate) struct InnerImage {
     pub(crate) image: ash::vk::Image,
     pub(crate) mem_requirements: vk::MemoryRequirements,

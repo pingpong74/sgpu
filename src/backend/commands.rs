@@ -1,9 +1,18 @@
 use std::{cell::RefCell, sync::Mutex};
 
 use ash::vk;
-use smallvec::smallvec;
+use smallvec::{SmallVec, smallvec};
 
 use crate::{Counter, commands::*};
+
+pub(crate) struct Queues {
+    pub(crate) queue_type_to_queue: [usize; 3],
+    pub(crate) queues: SmallVec<[Queue; 3]>,
+}
+
+impl Queues {
+    pub(crate) fn get_queue(&self, queue_type: QueueType) -> &Queue { return &self.queues[self.queue_type_to_queue[queue_type as usize]]; }
+}
 
 pub(crate) struct Queue {
     pub(crate) queue: vk::Queue,
@@ -97,8 +106,8 @@ struct CommandPool {
 }
 
 impl CommandPool {
-    fn new(queue_type: QueueType) -> Self {
-        let pool = crate::CONTEXT.get().expect("sgpu not initialized").device.create_command_pool(queue_type);
+    fn new(queue_family_index: u32, queue_type: QueueType) -> Self {
+        let pool = crate::CONTEXT.get().expect("sgpu not initialized").device.create_command_pool(queue_family_index);
 
         return CommandPool {
             pool,
@@ -172,22 +181,22 @@ impl CommandPool {
 }
 
 impl Drop for CommandPool {
-    fn drop(&mut self) {
-        crate::CONTEXT.get().unwrap().device.destroy_command_pool(self.pool);
-    }
+    fn drop(&mut self) { crate::CONTEXT.get().unwrap().device.destroy_command_pool(self.pool); }
 }
 
-struct CommandPoolRing {
+pub(crate) struct CommandPoolRing {
     head: usize,
     pools: Vec<CommandPool>,
     queue_type: QueueType,
+    queue_family_index: u32,
 }
 
 impl CommandPoolRing {
-    fn new(queue_type: QueueType, initial_size: usize) -> Self {
+    pub(crate) fn new(queue_type: QueueType, queue_family_index: u32, initial_size: usize) -> Self {
         Self {
             head: 0,
-            pools: (0..initial_size).map(|_| CommandPool::new(queue_type)).collect(),
+            pools: (0..initial_size).map(|_| CommandPool::new(queue_family_index, queue_type)).collect(),
+            queue_family_index,
             queue_type,
         }
     }
@@ -209,7 +218,7 @@ impl CommandPoolRing {
             }
         }
 
-        self.pools.push(CommandPool::new(self.queue_type));
+        self.pools.push(CommandPool::new(self.queue_family_index, self.queue_type));
         let idx = self.pools.len() - 1;
         let buf = self.pools[idx].allocate_buffer();
 
@@ -217,24 +226,17 @@ impl CommandPoolRing {
     }
 
     // just gets called by vkSubmit
-    fn mark_submitted(&mut self, pool_idx: usize, counter: Counter) {
-        self.pools[pool_idx].last_signal = Some(counter);
-    }
+    fn mark_submitted(&mut self, pool_idx: usize, counter: Counter) { self.pools[pool_idx].last_signal = Some(counter); }
 }
 
 pub(crate) struct ThreadCommandPools {
-    rings: [CommandPoolRing; 3],
+    pub(crate) queue_type_to_queue: [usize; 3],
+    pub(crate) rings: SmallVec<[CommandPoolRing; 3]>,
 }
 
 impl ThreadCommandPools {
-    pub(crate) fn new() -> Self {
-        Self {
-            rings: std::array::from_fn(|i| CommandPoolRing::new(QueueType::QUEUE_TYPES[i], 3)),
-        }
-    }
-
     pub(crate) fn record(&mut self, queue_type: QueueType) -> CommandBuffer {
-        let ring = &mut self.rings[queue_type as usize];
+        let ring = &mut self.rings[self.queue_type_to_queue[queue_type as usize]];
         let (pool_idx, handle) = ring.get();
 
         CommandBuffer {
@@ -245,7 +247,5 @@ impl ThreadCommandPools {
         }
     }
 
-    pub(crate) fn mark_submitted(&mut self, queue_type: QueueType, pool_idx: usize, counter: Counter) {
-        self.rings[queue_type as usize].mark_submitted(pool_idx, counter);
-    }
+    pub(crate) fn mark_submitted(&mut self, queue_type: QueueType, pool_idx: usize, counter: Counter) { self.rings[self.queue_type_to_queue[queue_type as usize]].mark_submitted(pool_idx, counter); }
 }

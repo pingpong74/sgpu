@@ -57,9 +57,7 @@ bitflags::bitflags! {
 
 impl PipelineStage {
     #[inline]
-    pub const fn to_vk(self) -> vk::PipelineStageFlags2 {
-        vk::PipelineStageFlags2::from_raw(self.bits())
-    }
+    pub const fn to_vk(self) -> vk::PipelineStageFlags2 { vk::PipelineStageFlags2::from_raw(self.bits()) }
 }
 
 // Render begin info
@@ -166,14 +164,10 @@ impl ClearValue {
     }
 
     /// Common helper for zero clear
-    pub const fn black() -> Self {
-        Self::ColorFloat([0.0, 0.0, 0.0, 1.0])
-    }
+    pub const fn black() -> Self { Self::ColorFloat([0.0, 0.0, 0.0, 1.0]) }
 
     /// Common helper for white clear
-    pub const fn white() -> Self {
-        Self::ColorFloat([1.0, 1.0, 1.0, 1.0])
-    }
+    pub const fn white() -> Self { Self::ColorFloat([1.0, 1.0, 1.0, 1.0]) }
 
     /// Common helper for depth clear
     pub const fn depth_one() -> Self {
@@ -221,9 +215,7 @@ bitflags::bitflags! {
 }
 
 impl RenderingFlags {
-    pub const fn to_vk(self) -> vk::RenderingFlags {
-        vk::RenderingFlags::from_raw(self.bits())
-    }
+    pub const fn to_vk(self) -> vk::RenderingFlags { vk::RenderingFlags::from_raw(self.bits()) }
 }
 pub struct RenderingBeginInfo<'a> {
     pub render_area: RenderArea,
@@ -289,7 +281,7 @@ impl CommandBuffer {
         }
 
         let ctx = crate::CONTEXT.get().expect("sgpu not initialized");
-        let semaphore = ctx.queues[queue as usize].semaphore;
+        let semaphore = ctx.queues.get_queue(queue).semaphore;
 
         self.waits.push(vk::SemaphoreSubmitInfo {
             semaphore,
@@ -396,7 +388,9 @@ impl CommandBuffer {
         let ctx = crate::CONTEXT.get().unwrap();
         let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
-            ctx.device.handle.cmd_copy_buffer_to_image(self.handle, src_buffer.raw, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk);
+            ctx.device
+                .handle
+                .cmd_copy_buffer_to_image(self.handle, src_buffer.raw, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk);
         }
     }
 
@@ -404,7 +398,9 @@ impl CommandBuffer {
         let ctx = crate::CONTEXT.get().unwrap();
         let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
-            ctx.device.handle.cmd_copy_image_to_buffer(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_buffer.raw, &regions_vk);
+            ctx.device
+                .handle
+                .cmd_copy_image_to_buffer(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_buffer.raw, &regions_vk);
         }
     }
 

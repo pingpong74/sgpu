@@ -21,7 +21,7 @@ pub(crate) struct Context {
     pub(crate) device: Device,
     pub(crate) bindless_descriptor_set: BindlessDescriptorSet,
 
-    pub(crate) queues: [Queue; 3],
+    pub(crate) queues: Queues,
 
     pub(crate) buffers: RwLock<SlotMap<DefaultKey, InnerBuffer>>,
     pub(crate) images: RwLock<SlotMap<DefaultKey, InnerImage>>,
@@ -60,7 +60,10 @@ impl Context {
             self.bindless_descriptor_set.write_buffer(&self.device, buffer, id.data().as_ffi() as u32);
         }
 
-        return Buffer { raw: buffer, id: id };
+        return Buffer {
+            raw: buffer,
+            id: id,
+        };
     }
 
     pub(crate) unsafe fn get_buffer_inner(&self, id: &Buffer) -> &InnerBuffer {
@@ -114,32 +117,32 @@ impl Context {
         self.device.destroy_image(inner);
     }
 
-    pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline {
-        return self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec);
-    }
+    pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline { return self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec); }
 
-    pub(crate) fn create_compute_pipeline(&self, shader: &[u8]) -> ComputePipeline {
-        return self.device.create_compute_pipeline(&self.bindless_descriptor_set, shader);
-    }
+    pub(crate) fn create_compute_pipeline(&self, shader: &[u8]) -> ComputePipeline { return self.device.create_compute_pipeline(&self.bindless_descriptor_set, shader); }
 
     pub(crate) fn poll(&self, counter: Counter) -> bool {
         let (queue_type, value) = counter.decode();
 
-        return self.queues[queue_type as usize].poll(value);
+        return self.queues.get_queue(queue_type).poll(value);
     }
 
-    pub(crate) fn wait_idle(&self) {
-        self.device.wait_idle();
-    }
+    pub(crate) fn wait_idle(&self) { self.device.wait_idle(); }
 
     pub(crate) fn wait(&self, counter: Counter) {
         let (queue_type, value) = counter.decode();
-        self.device.wait_queue(&self.queues[queue_type as usize], value);
+        self.device.wait_queue(&self.queues.get_queue(queue_type), value);
     }
 
     pub(crate) fn record(&self, queue_type: QueueType) -> CommandBuffer {
         let thread_id = std::thread::current().id();
-        return self.thread_cmd_pool_pool.write().unwrap().entry(thread_id).or_insert_with(ThreadCommandPools::new).record(queue_type);
+        return self
+            .thread_cmd_pool_pool
+            .write()
+            .unwrap()
+            .entry(thread_id)
+            .or_insert(self.device.create_thread_command_pools())
+            .record(queue_type);
     }
 
     pub(crate) fn submit(&self, command_buffers: &[CommandBuffer]) -> Counter {
@@ -147,7 +150,7 @@ impl Context {
 
         debug_assert!(command_buffers.iter().all(|c| c.queue == queue_type), "All command buffers must be from the same queue");
 
-        let counter = self.queues[queue_type as usize].submit(command_buffers);
+        let counter = self.queues.get_queue(queue_type).submit(command_buffers);
 
         // Mark all the pools to be free
         let thread_id = std::thread::current().id();

@@ -146,8 +146,6 @@ impl InnerSwapchain {
             }
         };
 
-        // Clamp requested image count to what the driver actually supports.
-        // max_image_count == 0 means no upper limit.
         let image_count = {
             let min = support.capabilities.min_image_count;
             let max = support.capabilities.max_image_count;
@@ -209,8 +207,6 @@ impl InnerSwapchain {
             })
             .collect();
 
-        // All sync objects are sized to actual_image_count so no slot ever goes OOB,
-        // regardless of what the driver handed back vs what the user requested.
         let acquire_semaphores = unsafe {
             (0..actual_image_count)
                 .map(|_| ctx.device.handle.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap())
@@ -221,7 +217,7 @@ impl InnerSwapchain {
                 .map(|_| ctx.device.handle.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap())
                 .collect()
         };
-        // Start fences pre-signaled so the first wait in acquire_image passes immediately.
+
         let fences = unsafe {
             (0..actual_image_count)
                 .map(|_| ctx.device.handle.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap())
@@ -245,8 +241,6 @@ impl InnerSwapchain {
         let ctx = crate::CONTEXT.get().unwrap();
         let slot = self.frame_timeline;
 
-        // Block until the previous frame using this slot has finished on the GPU,
-        // then reset the fence so present() can signal it again.
         unsafe {
             ctx.device.handle.wait_for_fences(&[self.fences[slot]], true, u64::MAX).unwrap();
             ctx.device.handle.reset_fences(&[self.fences[slot]]).unwrap();
@@ -260,8 +254,6 @@ impl InnerSwapchain {
 
         let (index, _) = unsafe { self.swapchain_loader.acquire_next_image2(&acquire_info).expect("Failed to acquire image") };
 
-        // Don't advance frame_timeline here — do it after present so the slot
-        // isn't reused before the fence is handed off to the queue.
         return AcquiredImage {
             image: self.images[index as usize],
             image_index: index as usize,
@@ -274,7 +266,7 @@ impl InnerSwapchain {
     pub(crate) fn present(&mut self, acquired_image: &AcquiredImage, counter: Counter) {
         let ctx = crate::CONTEXT.get().unwrap();
         let (queue_id, value) = counter.decode();
-        let queue = &ctx.queues[queue_id as usize];
+        let queue = ctx.queues.get_queue(queue_id);
 
         unsafe {
             ctx.device
@@ -319,7 +311,6 @@ impl InnerSwapchain {
                 .expect("Failed to present image");
         }
 
-        // Advance only after present so the slot isn't reused until the fence is in flight.
         self.frame_timeline = (acquired_image.slot + 1) % self.actual_image_count;
     }
 
