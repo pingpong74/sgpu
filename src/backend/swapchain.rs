@@ -4,7 +4,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
     Counter, Image, ImageView, ImageViewDescription,
-    backend::{instance::Instance, resources::InnerImage},
+    backend::{context::Context, instance::Instance, resources::InnerImage},
     swapchain::{AcquiredImage, SwapchainDescription},
 };
 
@@ -90,6 +90,7 @@ impl Surface {
 }
 
 pub(crate) struct InnerSwapchain {
+    pub(crate) ctx: &'static Context,
     handle: vk::SwapchainKHR,
     swapchain_loader: ash::khr::swapchain::Device,
     pub(crate) swapchain_description: SwapchainDescription,
@@ -104,9 +105,7 @@ pub(crate) struct InnerSwapchain {
 }
 
 impl InnerSwapchain {
-    pub(crate) fn new(surface: &Surface, swapchain_description: &SwapchainDescription, old_swapchain: Option<&InnerSwapchain>) -> InnerSwapchain {
-        let ctx = crate::CONTEXT.get().unwrap();
-
+    pub(crate) fn new(surface: &Surface, swapchain_description: &SwapchainDescription, old_swapchain: Option<&InnerSwapchain>, ctx: &'static Context) -> InnerSwapchain {
         let swapchain_loader = ash::khr::swapchain::Device::new(&ctx.instance.handle, &ctx.device.handle);
 
         let support = surface.get_swapchain_support(ctx.device.physical_device.handle).expect("Swapchain not supported!!");
@@ -225,6 +224,7 @@ impl InnerSwapchain {
         };
 
         return InnerSwapchain {
+            ctx,
             handle: swapchain,
             swapchain_loader,
             images: ids,
@@ -238,7 +238,7 @@ impl InnerSwapchain {
     }
 
     pub(crate) fn acquire_image(&mut self) -> AcquiredImage {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let slot = self.frame_timeline;
 
         unsafe {
@@ -264,7 +264,7 @@ impl InnerSwapchain {
     }
 
     pub(crate) fn present(&mut self, acquired_image: &AcquiredImage, counter: Counter) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let (queue_id, value) = counter.decode();
         let queue = ctx.queues.get_queue(queue_id);
 
@@ -315,7 +315,7 @@ impl InnerSwapchain {
     }
 
     pub(crate) fn cleanup(&self) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
 
         self.images.iter().for_each(|img| {
             ctx.images.write().unwrap().remove(img.id).unwrap();

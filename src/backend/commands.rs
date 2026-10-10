@@ -5,6 +5,8 @@ use smallvec::{SmallVec, smallvec};
 
 use crate::{Counter, commands::*};
 
+use super::{context::Context, device::Device};
+
 pub(crate) struct Queues {
     pub(crate) queue_type_to_queue: [usize; 3],
     pub(crate) queues: SmallVec<[Queue; 3]>,
@@ -22,7 +24,7 @@ pub(crate) struct Queue {
 }
 
 impl Queue {
-    pub(crate) fn submit(&self, command_buffers: &[CommandBuffer]) -> Counter {
+    pub(crate) fn submit(&self, device: &Device, command_buffers: &[CommandBuffer]) -> Counter {
         // a submit scartch to reuse memory, idk if this is needed but here goes nothing ig
         struct SubmitScratch {
             waits: Vec<vk::SemaphoreSubmitInfo<'static>>,
@@ -44,12 +46,10 @@ impl Queue {
             });
         }
 
-        let ctx = crate::CONTEXT.get().unwrap();
-
         // end all command buffers
         for cmd in command_buffers {
             unsafe {
-                ctx.device.handle.end_command_buffer(cmd.handle).expect("vkEndCommandBuffer failed");
+                device.handle.end_command_buffer(cmd.handle).expect("vkEndCommandBuffer failed");
             }
         }
 
@@ -84,20 +84,21 @@ impl Queue {
             ];
 
             unsafe {
-                ctx.device.handle.queue_submit2(self.queue, &submit_infos, vk::Fence::null()).expect("vkQueueSubmit2 failed");
+                device.handle.queue_submit2(self.queue, &submit_infos, vk::Fence::null()).expect("vkQueueSubmit2 failed");
             }
 
             counter
         });
     }
 
-    pub(crate) fn poll(&self, value: u64) -> bool {
-        let current_value = unsafe { crate::CONTEXT.get().unwrap().device.handle.get_semaphore_counter_value(self.semaphore).unwrap() };
+    pub(crate) fn poll(&self, device: &Device, value: u64) -> bool {
+        let current_value = unsafe { device.handle.get_semaphore_counter_value(self.semaphore).unwrap() };
         return current_value >= value;
     }
 }
 
 struct CommandPool {
+    ctx: &'static Context,
     pool: vk::CommandPool,
     buffers: Vec<vk::CommandBuffer>,
     in_flight: usize,
@@ -106,10 +107,11 @@ struct CommandPool {
 }
 
 impl CommandPool {
-    fn new(queue_family_index: u32, queue_type: QueueType) -> Self {
-        let pool = crate::CONTEXT.get().expect("sgpu not initialized").device.create_command_pool(queue_family_index);
+    fn new(queue_family_index: u32, queue_type: QueueType, ctx: &'static Context) -> Self {
+        let pool = ctx.device.create_command_pool(queue_family_index);
 
         return CommandPool {
+            ctx,
             pool,
             buffers: Vec::new(),
             in_flight: 0,
@@ -120,9 +122,7 @@ impl CommandPool {
 
     fn reset(&mut self) {
         unsafe {
-            crate::CONTEXT
-                .get()
-                .unwrap()
+            self.ctx
                 .device
                 .handle
                 .reset_command_pool(self.pool, vk::CommandPoolResetFlags::empty())
@@ -134,8 +134,8 @@ impl CommandPool {
     }
 
     fn allocate_buffer(&mut self) -> vk::CommandBuffer {
-        let device = &crate::CONTEXT.get().unwrap().device.handle;
-        let desc = &crate::CONTEXT.get().unwrap().bindless_descriptor_set;
+        let device = &self.ctx.device.handle;
+        let desc = &self.ctx.bindless_descriptor_set;
 
         if self.in_flight == self.buffers.len() {
             let new = unsafe {
@@ -175,13 +175,13 @@ impl CommandPool {
     fn is_free(&self) -> bool {
         return match self.last_signal {
             None => self.in_flight == 0,
-            Some(c) => crate::poll(c),
+            Some(c) => self.ctx.poll(c),
         };
     }
 }
 
 impl Drop for CommandPool {
-    fn drop(&mut self) { crate::CONTEXT.get().unwrap().device.destroy_command_pool(self.pool); }
+    fn drop(&mut self) { self.ctx.device.destroy_command_pool(self.pool); }
 }
 
 pub(crate) struct CommandPoolRing {
@@ -189,15 +189,17 @@ pub(crate) struct CommandPoolRing {
     pools: Vec<CommandPool>,
     queue_type: QueueType,
     queue_family_index: u32,
+    ctx: &'static Context,
 }
 
 impl CommandPoolRing {
-    pub(crate) fn new(queue_type: QueueType, queue_family_index: u32, initial_size: usize) -> Self {
+    pub(crate) fn new(queue_type: QueueType, queue_family_index: u32, initial_size: usize, ctx: &'static Context) -> Self {
         Self {
             head: 0,
-            pools: (0..initial_size).map(|_| CommandPool::new(queue_family_index, queue_type)).collect(),
+            pools: (0..initial_size).map(|_| CommandPool::new(queue_family_index, queue_type, ctx)).collect(),
             queue_family_index,
             queue_type,
+            ctx,
         }
     }
 
@@ -218,7 +220,7 @@ impl CommandPoolRing {
             }
         }
 
-        self.pools.push(CommandPool::new(self.queue_family_index, self.queue_type));
+        self.pools.push(CommandPool::new(self.queue_family_index, self.queue_type, self.ctx));
         let idx = self.pools.len() - 1;
         let buf = self.pools[idx].allocate_buffer();
 
@@ -235,7 +237,7 @@ pub(crate) struct ThreadCommandPools {
 }
 
 impl ThreadCommandPools {
-    pub(crate) fn record(&mut self, queue_type: QueueType) -> CommandBuffer {
+    pub(crate) fn record(&mut self, queue_type: QueueType, ctx: &'static Context) -> CommandBuffer {
         let ring = &mut self.rings[self.queue_type_to_queue[queue_type as usize]];
         let (pool_idx, handle) = ring.get();
 
@@ -244,6 +246,7 @@ impl ThreadCommandPools {
             queue: queue_type,
             pool_idx,
             waits: smallvec![],
+            ctx,
         }
     }
 

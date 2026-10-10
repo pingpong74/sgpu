@@ -1,7 +1,7 @@
 use ash::vk;
 use smallvec::SmallVec;
 
-use crate::{ImageView, commands::CommandBuffer};
+use crate::{ImageView, backend::Context, commands::CommandBuffer};
 
 /// AccessType, maps to vk::AccessFlags2
 /// Used an enum so Image Layout's can be inffered
@@ -427,7 +427,6 @@ impl ImageLayout {
     }
 }
 
-/// Global memory barrier — no specific resource.
 /// Prefer this over image barriers when no layout transition is needed
 pub struct GlobalBarrier<'a> {
     pub previous_accesses: &'a [AccessType],
@@ -440,19 +439,14 @@ pub struct ImageBarrier<'a> {
     pub view: ImageView,
     pub previous_accesses: &'a [AccessType],
     pub next_accesses: &'a [AccessType],
-    /// Override the layout derived from AccessType. Defaults to Optimal.
     pub previous_layout: ImageLayout,
-    /// Override the layout derived from AccessType. Defaults to Optimal.
     pub next_layout: ImageLayout,
-    /// Discard previous contents, driver skips the layout blit.
-    /// Use on first use or when every texel will be overwritten.
     pub discard_contents: bool,
 }
 
 impl CommandBuffer {
-    /// Global memory barrier, Use for buffers pr images when no layout transition is needed
     pub fn global_barrier(&mut self, barrier: &GlobalBarrier) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
 
         let (src_stage, dst_stage, src_access, dst_access) = fold_accesses(barrier.previous_accesses, barrier.next_accesses);
 
@@ -469,10 +463,9 @@ impl CommandBuffer {
         }
     }
 
-    /// Image barrier — use when a layout transition is required.
     pub fn image_barrier(&mut self, barrier: &ImageBarrier) {
-        let ctx = crate::CONTEXT.get().unwrap();
-        let vk_barrier = build_image_barrier(barrier);
+        let ctx = self.ctx;
+        let vk_barrier = build_image_barrier(ctx, barrier);
 
         unsafe {
             ctx.device
@@ -481,10 +474,9 @@ impl CommandBuffer {
         }
     }
 
-    /// Batch multiple barriers into a single cmd_pipeline_barrier2 call.
-    /// Always prefer this over calling global_barrier / image_barrier in a loop.
     pub fn barriers(&mut self, global: Option<&GlobalBarrier>, images: &[ImageBarrier]) {
-        let img_barriers: SmallVec<[vk::ImageMemoryBarrier2; 8]> = images.iter().map(build_image_barrier).collect();
+        let ctx = self.ctx;
+        let img_barriers: SmallVec<[vk::ImageMemoryBarrier2; 8]> = images.iter().map(|b| build_image_barrier(ctx, b)).collect();
 
         let memory_barrier = global.map(|g| {
             let (src_stage, dst_stage, src_access, dst_access) = fold_accesses(g.previous_accesses, g.next_accesses);
@@ -501,16 +493,12 @@ impl CommandBuffer {
             dep_info = dep_info.memory_barriers(std::slice::from_ref(mb));
         }
 
-        let ctx = crate::CONTEXT.get().unwrap();
         unsafe {
             ctx.device.handle.cmd_pipeline_barrier2(self.handle, &dep_info);
         }
     }
 }
 
-/// Fold previous/next access slices into the four Sync2 fields.
-/// Implements the WAR optimisation from vk-sync-rs: if src_access is empty
-/// (pure execution dependency) dst_access is zeroed too — no visibility op needed.
 fn fold_accesses(previous: &[AccessType], next: &[AccessType]) -> (vk::PipelineStageFlags2, vk::PipelineStageFlags2, vk::AccessFlags2, vk::AccessFlags2) {
     let mut src_stage = vk::PipelineStageFlags2::empty();
     let mut dst_stage = vk::PipelineStageFlags2::empty();
@@ -544,9 +532,7 @@ fn fold_accesses(previous: &[AccessType], next: &[AccessType]) -> (vk::PipelineS
     (src_stage, dst_stage, src_access, dst_access)
 }
 
-fn build_image_barrier(barrier: &ImageBarrier) -> vk::ImageMemoryBarrier2<'static> {
-    let ctx = crate::CONTEXT.get().unwrap();
-
+fn build_image_barrier(ctx: &Context, barrier: &ImageBarrier) -> vk::ImageMemoryBarrier2<'static> {
     let image_views = ctx.image_views.read().unwrap();
     let inner_view = image_views.get(barrier.view.id).unwrap();
 

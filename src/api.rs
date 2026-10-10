@@ -66,8 +66,9 @@ pub fn destroy_image(image: Image) {
 }
 
 pub fn create_swapchain<W: HasDisplayHandle + HasWindowHandle>(window: &W, swapchain_description: &SwapchainDescription) -> Swapchain {
-    let surface = Surface::create_surface(&crate::CONTEXT.get().expect("Not initialized").instance, window);
-    let inner = InnerSwapchain::new(&surface, swapchain_description, None);
+    let ctx = crate::CONTEXT.get().expect("Not initialized");
+    let surface = Surface::create_surface(&ctx.instance, window);
+    let inner = InnerSwapchain::new(&surface, swapchain_description, None, ctx);
 
     return Swapchain {
         inner: inner,

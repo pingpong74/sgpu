@@ -1,4 +1,4 @@
-use crate::{commands::rendering_recorder::*, swapchain::AcquiredImage, *};
+use crate::{backend::Context, commands::rendering_recorder::*, swapchain::AcquiredImage, *};
 use ash::vk;
 use slotmap::{DefaultKey, Key};
 use smallvec::SmallVec;
@@ -252,11 +252,12 @@ pub struct CommandBuffer {
     pub(crate) queue: QueueType,
     pub(crate) pool_idx: usize,
     pub(crate) waits: SmallVec<[vk::SemaphoreSubmitInfo<'static>; 3]>,
+    pub(crate) ctx: &'static Context,
 }
 
 impl CommandBuffer {
     pub fn fill_buffer(&mut self, buffer: &Buffer, offset: u64, size: u64, data: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
 
         unsafe {
             ctx.device.handle.cmd_fill_buffer(self.handle, buffer.raw, offset, size, data);
@@ -280,7 +281,7 @@ impl CommandBuffer {
             return;
         }
 
-        let ctx = crate::CONTEXT.get().expect("sgpu not initialized");
+        let ctx = self.ctx;
         let semaphore = ctx.queues.get_queue(queue).semaphore;
 
         self.waits.push(vk::SemaphoreSubmitInfo {
@@ -294,9 +295,7 @@ impl CommandBuffer {
 
     pub fn bind_compute_pipeline(&mut self, compute_pipeline: &ComputePipeline) {
         unsafe {
-            crate::CONTEXT
-                .get()
-                .unwrap()
+            self.ctx
                 .device
                 .handle
                 .cmd_bind_pipeline(self.handle, vk::PipelineBindPoint::COMPUTE, compute_pipeline.handle);
@@ -304,7 +303,7 @@ impl CommandBuffer {
     }
 
     pub fn push_constants<T: Copy>(&mut self, data: &T) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let bytes = unsafe { std::slice::from_raw_parts(data as *const T as *const u8, std::mem::size_of::<T>()) };
         unsafe {
             ctx.device
@@ -315,12 +314,12 @@ impl CommandBuffer {
 
     pub fn dispatch(&mut self, x: u32, y: u32, z: u32) {
         unsafe {
-            crate::CONTEXT.get().unwrap().device.handle.cmd_dispatch(self.handle, x, y, z);
+            self.ctx.device.handle.cmd_dispatch(self.handle, x, y, z);
         }
     }
 
     pub fn copy_buffer(&mut self, src_buffer: Buffer, dst_buffer: Buffer, src_offset: u64, dst_offset: u64, size: u64) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
 
         unsafe {
             ctx.device.handle.cmd_copy_buffer(
@@ -337,21 +336,21 @@ impl CommandBuffer {
     }
 
     pub fn draw_indirect(&mut self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device.handle.cmd_draw_indirect(self.handle, buffer.raw, offset, draw_count, stride);
         }
     }
 
     pub fn draw_indexed_indirect(&mut self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device.handle.cmd_draw_indexed_indirect(self.handle, buffer.raw, offset, draw_count, stride);
         }
     }
 
     pub fn draw_indirect_count(&mut self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device
                 .handle
@@ -360,7 +359,7 @@ impl CommandBuffer {
     }
 
     pub fn draw_indexed_indirect_count(&mut self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device
                 .handle
@@ -369,14 +368,14 @@ impl CommandBuffer {
     }
 
     pub fn dispatch_indirect(&mut self, buffer: &Buffer, offset: u64) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device.handle.cmd_dispatch_indirect(self.handle, buffer.raw, offset);
         }
     }
 
     pub fn update_buffer<T: Copy>(&mut self, buffer: &Buffer, offset: u64, data: &[T]) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let ptr = data.as_ptr() as *const u8;
         let len = data.len() * std::mem::size_of::<T>();
         unsafe {
@@ -385,7 +384,7 @@ impl CommandBuffer {
     }
 
     pub fn copy_buffer_to_image(&mut self, src_buffer: &Buffer, dst_image: &Image, regions: &[BufferImageCopyRegion]) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
             ctx.device
@@ -395,7 +394,7 @@ impl CommandBuffer {
     }
 
     pub fn copy_image_to_buffer(&mut self, src_image: &Image, dst_buffer: &Buffer, regions: &[BufferImageCopyRegion]) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
             ctx.device
@@ -405,7 +404,7 @@ impl CommandBuffer {
     }
 
     pub fn copy_image(&mut self, src_image: &Image, dst_image: &Image, region: &ImageCopyRegion) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let region_vk = region.to_vk();
         unsafe {
             ctx.device
@@ -415,7 +414,7 @@ impl CommandBuffer {
     }
 
     pub fn blit_image(&mut self, src_image: &Image, dst_image: &Image, regions: &[BlitRegion], filter: Filter) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let regions_vk: SmallVec<[vk::ImageBlit; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
             ctx.device
@@ -427,7 +426,7 @@ impl CommandBuffer {
     // TODO: use a scratch?
     // give seperate struct or smt man
     pub fn begin_rendering<F: FnOnce(RenderRecorder)>(&mut self, rendering_begin_info: &RenderingBeginInfo, f: F) {
-        let ctx = crate::CONTEXT.get().expect("sgpu not initialized");
+        let ctx = self.ctx;
         let mut color_attachment_info = SmallVec::<[vk::RenderingAttachmentInfo; 3]>::new();
 
         for color_attachement in rendering_begin_info.color_attachments {
@@ -498,6 +497,7 @@ impl CommandBuffer {
 
         f(RenderRecorder {
             cmd_buffer: self.handle,
+            ctx: self.ctx,
         });
 
         unsafe {

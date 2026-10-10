@@ -5,6 +5,7 @@ use crate::{
     api::SgpuInititizationInfo,
     backend::{
         commands::{CommandPoolRing, Queue, Queues, ThreadCommandPools},
+        context::Context,
         descriptors::BindlessDescriptorSet,
         instance::Instance,
         physical_device::PhysicalDevice,
@@ -210,7 +211,7 @@ impl Device {
         };
     }
 
-    pub(crate) fn create_thread_command_pools(&self) -> ThreadCommandPools {
+    pub(crate) fn create_thread_command_pools(&self, ctx: &'static Context) -> ThreadCommandPools {
         // Graphics, Compute, Transfer
         let mut queue_type_to_queue: [usize; 3] = [0; 3];
         let mut rings: SmallVec<[CommandPoolRing; 3]> = smallvec![];
@@ -219,19 +220,19 @@ impl Device {
 
         if let Some(graphics_family) = self.physical_device.queue_families.graphics {
             queue_type_to_queue[0] = len;
-            rings.push(CommandPoolRing::new(QueueType::Graphics, graphics_family, 3));
+            rings.push(CommandPoolRing::new(QueueType::Graphics, graphics_family, 3, ctx));
             len += 1;
         }
 
         if let Some(compute_family) = self.physical_device.queue_families.compute {
             queue_type_to_queue[1] = len;
-            rings.push(CommandPoolRing::new(QueueType::Compute, compute_family, 3));
+            rings.push(CommandPoolRing::new(QueueType::Compute, compute_family, 3, ctx));
             len += 1;
         }
 
         if let Some(transfer_family) = self.physical_device.queue_families.transfer {
             queue_type_to_queue[2] = len;
-            rings.push(CommandPoolRing::new(QueueType::Transfer, transfer_family, 3));
+            rings.push(CommandPoolRing::new(QueueType::Transfer, transfer_family, 3, ctx));
         }
 
         return ThreadCommandPools {

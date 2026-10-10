@@ -1,16 +1,15 @@
-use crate::{Buffer, RasterizationPipeline};
+use crate::{Buffer, RasterizationPipeline, backend::Context};
 use ash::vk;
 
 pub struct RenderRecorder {
     pub(crate) cmd_buffer: vk::CommandBuffer,
+    pub(crate) ctx: &'static Context,
 }
 
 impl RenderRecorder {
     pub fn bind_rasterization_pipeline(&self, pipeline: &RasterizationPipeline) {
         unsafe {
-            crate::CONTEXT
-                .get()
-                .unwrap()
+            self.ctx
                 .device
                 .handle
                 .cmd_bind_pipeline(self.cmd_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.handle);
@@ -18,7 +17,7 @@ impl RenderRecorder {
     }
 
     pub fn push_constants<T: Copy>(&self, data: &T) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         let bytes = unsafe { std::slice::from_raw_parts(data as *const T as *const u8, std::mem::size_of::<T>()) };
         unsafe {
             ctx.device
@@ -29,9 +28,7 @@ impl RenderRecorder {
 
     pub fn draw(&self, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) {
         unsafe {
-            crate::CONTEXT
-                .get()
-                .unwrap()
+            self.ctx
                 .device
                 .handle
                 .cmd_draw(self.cmd_buffer, vertex_count, instance_count, first_vertex, first_instance);
@@ -40,9 +37,7 @@ impl RenderRecorder {
 
     pub fn draw_indexed(&self, index_count: u32, instance_count: u32, first_index: u32, vertex_offset: i32, first_instance: u32) {
         unsafe {
-            crate::CONTEXT
-                .get()
-                .unwrap()
+            self.ctx
                 .device
                 .handle
                 .cmd_draw_indexed(self.cmd_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
@@ -51,7 +46,7 @@ impl RenderRecorder {
 
     pub fn set_viewport(&self, width: u32, height: u32) {
         unsafe {
-            crate::CONTEXT.get().unwrap().device.handle.cmd_set_viewport(
+            self.ctx.device.handle.cmd_set_viewport(
                 self.cmd_buffer,
                 0,
                 &[vk::Viewport {
@@ -68,7 +63,7 @@ impl RenderRecorder {
 
     pub fn set_scissor(&self, width: u32, height: u32) {
         unsafe {
-            crate::CONTEXT.get().unwrap().device.handle.cmd_set_scissor(
+            self.ctx.device.handle.cmd_set_scissor(
                 self.cmd_buffer,
                 0,
                 &[vk::Rect2D {
@@ -83,21 +78,21 @@ impl RenderRecorder {
     }
 
     pub fn draw_indirect(&self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device.handle.cmd_draw_indirect(self.cmd_buffer, buffer.raw, offset, draw_count, stride);
         }
     }
 
     pub fn draw_indexed_indirect(&self, buffer: &Buffer, offset: u64, draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device.handle.cmd_draw_indexed_indirect(self.cmd_buffer, buffer.raw, offset, draw_count, stride);
         }
     }
 
     pub fn draw_indirect_count(&self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device
                 .handle
@@ -106,7 +101,7 @@ impl RenderRecorder {
     }
 
     pub fn draw_indexed_indirect_count(&self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
-        let ctx = crate::CONTEXT.get().unwrap();
+        let ctx = self.ctx;
         unsafe {
             ctx.device
                 .handle

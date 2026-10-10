@@ -43,7 +43,7 @@ impl Swapchain {
             height,
         };
 
-        let new = InnerSwapchain::new(&self.surface, &swapchain_description, Some(&self.inner));
+        let new = InnerSwapchain::new(&self.surface, &swapchain_description, Some(&self.inner), self.inner.ctx);
 
         self.inner.cleanup();
         self.inner = new;

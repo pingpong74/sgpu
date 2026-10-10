@@ -124,7 +124,7 @@ impl Context {
     pub(crate) fn poll(&self, counter: Counter) -> bool {
         let (queue_type, value) = counter.decode();
 
-        return self.queues.get_queue(queue_type).poll(value);
+        return self.queues.get_queue(queue_type).poll(&self.device, value);
     }
 
     pub(crate) fn wait_idle(&self) { self.device.wait_idle(); }
@@ -134,15 +134,15 @@ impl Context {
         self.device.wait_queue(&self.queues.get_queue(queue_type), value);
     }
 
-    pub(crate) fn record(&self, queue_type: QueueType) -> CommandBuffer {
+    pub(crate) fn record(&'static self, queue_type: QueueType) -> CommandBuffer {
         let thread_id = std::thread::current().id();
         return self
             .thread_cmd_pool_pool
             .write()
             .unwrap()
             .entry(thread_id)
-            .or_insert(self.device.create_thread_command_pools())
-            .record(queue_type);
+            .or_insert(self.device.create_thread_command_pools(self))
+            .record(queue_type, self);
     }
 
     pub(crate) fn submit(&self, command_buffers: &[CommandBuffer]) -> Counter {
@@ -150,7 +150,7 @@ impl Context {
 
         debug_assert!(command_buffers.iter().all(|c| c.queue == queue_type), "All command buffers must be from the same queue");
 
-        let counter = self.queues.get_queue(queue_type).submit(command_buffers);
+        let counter = self.queues.get_queue(queue_type).submit(&self.device, command_buffers);
 
         // Mark all the pools to be free
         let thread_id = std::thread::current().id();
