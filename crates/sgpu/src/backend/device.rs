@@ -1,7 +1,7 @@
 use std::{mem::ManuallyDrop, sync::Mutex};
 
 use crate::{
-    BufferDescription, ComputePipeline, ImageDescription, ImageViewDescription, MemoryType,
+    BufferDescription, ComputePipeline, ImageAspect, ImageDescription, ImageViewDescription, MemoryType,
     api::SgpuInititizationInfo,
     backend::{
         commands::{CommandPoolRing, Queue, Queues, ThreadCommandPools},
@@ -12,7 +12,7 @@ use crate::{
         resources::{InnerBuffer, InnerImage, InnerImageView},
     },
     commands::QueueType,
-    pipeline::{RasterizationPipeline, RasterizationPipelineDescription},
+    pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
 };
 use ash::vk::{self, SemaphoreWaitInfo};
 use gpu_allocator::{
@@ -74,7 +74,13 @@ impl Device {
             .collect();
 
         // Existing common features
-        let features = vk::PhysicalDeviceFeatures::default().shader_int64(true).multi_draw_indirect(true).sampler_anisotropy(true);
+        let supported = unsafe { instance.handle.get_physical_device_features(physical_device.handle) };
+        let features = vk::PhysicalDeviceFeatures::default()
+            .shader_int64(true)
+            .multi_draw_indirect(true)
+            .sampler_anisotropy(true)
+            .shader_storage_image_read_without_format(supported.shader_storage_image_read_without_format == vk::TRUE)
+            .shader_storage_image_write_without_format(supported.shader_storage_image_write_without_format == vk::TRUE);
         let mut float_atomic_features = vk::PhysicalDeviceShaderAtomicFloatFeaturesEXT::default().shader_buffer_float32_atomic_add(true);
 
         let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
@@ -91,6 +97,8 @@ impl Device {
             .timeline_semaphore(true)
             .descriptor_indexing(true)
             .shader_sampled_image_array_non_uniform_indexing(true)
+            .shader_storage_buffer_array_non_uniform_indexing(true)
+            .shader_storage_image_array_non_uniform_indexing(true)
             .descriptor_binding_partially_bound(true)
             .runtime_descriptor_array(true)
             .descriptor_binding_variable_descriptor_count(true)
@@ -342,6 +350,15 @@ impl Device {
     }
 
     pub(crate) fn create_image_view(&self, image: &InnerImage, desc: &ImageViewDescription) -> InnerImageView {
+        let mut subresources = desc.subresources;
+        if subresources.aspect == ImageAspect::COLOR {
+            subresources.aspect = match image.format {
+                vk::Format::D16_UNORM | vk::Format::X8_D24_UNORM_PACK32 | vk::Format::D32_SFLOAT => ImageAspect::DEPTH,
+                vk::Format::D24_UNORM_S8_UINT | vk::Format::D32_SFLOAT_S8_UINT => ImageAspect::DEPTH | ImageAspect::STENCIL,
+                _ => ImageAspect::COLOR,
+            };
+        }
+
         let image_view_create_info = vk::ImageViewCreateInfo::default()
             .image(image.image)
             .view_type(desc.view_type.to_vk())
@@ -352,14 +369,14 @@ impl Device {
                 b: vk::ComponentSwizzle::IDENTITY,
                 a: vk::ComponentSwizzle::IDENTITY,
             })
-            .subresource_range(desc.subresources.to_vk_subresource_range());
+            .subresource_range(subresources.to_vk_subresource_range());
 
         let view = unsafe { self.handle.create_image_view(&image_view_create_info, None).expect("Failed to create Image view") };
 
         return InnerImageView {
             view: view,
             image: image.image,
-            subresources: desc.subresources.to_vk_subresource_range(),
+            subresources: subresources.to_vk_subresource_range(),
         };
     }
 
@@ -395,17 +412,18 @@ impl Device {
     }
 
     pub(crate) fn create_raster_pipeline(&self, layout: &BindlessDescriptorSet, desc: &RasterizationPipelineDescription) -> RasterizationPipeline {
-        assert!(!desc.vertex_shader.is_empty(), "vertex shader SPIR-V is empty");
-        assert!(!desc.fragment_shader.is_empty(), "fragment shader SPIR-V is empty");
+        assert!(!desc.vertex.spirv.is_empty(), "vertex shader SPIR-V is empty");
+        assert!(!desc.fragment.spirv.is_empty(), "fragment shader SPIR-V is empty");
 
-        let entry = std::ffi::CString::new("main").unwrap();
+        let vert_entry = std::ffi::CString::new(desc.vertex.entry).expect("vertex entry point name contains a null byte");
+        let frag_entry = std::ffi::CString::new(desc.fragment.entry).expect("fragment entry point name contains a null byte");
 
-        let vert = self.create_shader_module(desc.vertex_shader);
-        let frag = self.create_shader_module(desc.fragment_shader);
+        let vert = self.create_shader_module(desc.vertex.spirv);
+        let frag = self.create_shader_module(desc.fragment.spirv);
 
         let stages = [
-            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::VERTEX).module(vert).name(&entry),
-            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::FRAGMENT).module(frag).name(&entry),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::VERTEX).module(vert).name(&vert_entry),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::FRAGMENT).module(frag).name(&frag_entry),
         ];
 
         // Bindless — no vertex bindings or attributes
@@ -501,9 +519,11 @@ impl Device {
         }
     }
 
-    pub(crate) fn create_compute_pipeline(&self, layout: &BindlessDescriptorSet, shader: &[u8]) -> ComputePipeline {
-        let entry = std::ffi::CString::new("main").unwrap();
-        let shader = self.create_shader_module(shader);
+    pub(crate) fn create_compute_pipeline(&self, layout: &BindlessDescriptorSet, module: &ShaderModule) -> ComputePipeline {
+        assert!(!module.spirv.is_empty(), "compute shader SPIR-V is empty");
+
+        let entry = std::ffi::CString::new(module.entry).expect("compute entry point name contains a null byte");
+        let shader = self.create_shader_module(module.spirv);
 
         let shader_stage_info = vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::COMPUTE).module(shader).name(&entry);
 

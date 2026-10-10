@@ -1,0 +1,11 @@
+[package]
+name = "sgpu-shaders"
+version.workspace = true
+edition.workspace = true
+description = "Shader-side bindless ABI for sgpu, the Rust twin of the sgpu.slang module"
+
+[dependencies]
+spirv-std = "0.10.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_arch, values("spirv"))'] }

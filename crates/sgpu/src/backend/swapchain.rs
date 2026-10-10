@@ -171,8 +171,6 @@ impl InnerSwapchain {
             });
 
         let swapchain = unsafe { swapchain_loader.create_swapchain(&create_info, None).expect("Failed to create swapchain") };
-
-        // Query actual image count — driver may have created more than requested.
         let images = unsafe { swapchain_loader.get_swapchain_images(swapchain).expect("Failed to get swapchain images") };
         let actual_image_count = images.len();
 
@@ -258,7 +256,7 @@ impl InnerSwapchain {
             image: self.images[index as usize],
             image_index: index as usize,
             acquire_semaphore: self.acquire_semaphores[slot],
-            present_semaphore: self.present_semaphores[slot],
+            present_semaphore: self.present_semaphores[index as usize],
             slot,
         };
     }

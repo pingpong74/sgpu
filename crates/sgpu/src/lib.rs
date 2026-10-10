@@ -26,5 +26,3 @@ pub fn add_shader_directory(path: &str) {
     let output = dir.join("sgpu.slang");
     std::fs::write(output, include_bytes!("sgpu.slang")).expect("Failed to write nexion.slang to the requested directory");
 }
-
-// hmm

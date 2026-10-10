@@ -2,7 +2,7 @@ use crate::{
     ComputePipeline,
     backend::{Context, InnerSwapchain, Surface},
     commands::{CommandBuffer, QueueType},
-    pipeline::{RasterizationPipeline, RasterizationPipelineDescription},
+    pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
     swapchain::{Swapchain, SwapchainDescription},
     types::*,
 };
@@ -80,8 +80,8 @@ pub fn create_rasterization_pipeline(raster_pipeline_desc: &RasterizationPipelin
     return crate::CONTEXT.get().unwrap().create_raster_pipeline(raster_pipeline_desc);
 }
 
-pub fn create_compute_pipeline(shader: &[u8]) -> ComputePipeline {
-    return crate::CONTEXT.get().unwrap().create_compute_pipeline(shader);
+pub fn create_compute_pipeline(module: &ShaderModule) -> ComputePipeline {
+    return crate::CONTEXT.get().unwrap().create_compute_pipeline(module);
 }
 
 /// A simple function to check if the counter has already been signaled

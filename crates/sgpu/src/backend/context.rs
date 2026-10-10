@@ -8,7 +8,7 @@ use crate::{
         resources::{InnerBuffer, InnerImage, InnerImageView},
     },
     commands::{CommandBuffer, QueueType},
-    pipeline::{RasterizationPipeline, RasterizationPipelineDescription},
+    pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
 };
 
 use super::instance::Instance;
@@ -119,7 +119,7 @@ impl Context {
 
     pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline { return self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec); }
 
-    pub(crate) fn create_compute_pipeline(&self, shader: &[u8]) -> ComputePipeline { return self.device.create_compute_pipeline(&self.bindless_descriptor_set, shader); }
+    pub(crate) fn create_compute_pipeline(&self, module: &ShaderModule) -> ComputePipeline { return self.device.create_compute_pipeline(&self.bindless_descriptor_set, module); }
 
     pub(crate) fn poll(&self, counter: Counter) -> bool {
         let (queue_type, value) = counter.decode();

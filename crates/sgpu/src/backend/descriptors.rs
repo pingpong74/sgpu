@@ -1,9 +1,11 @@
 use super::device::Device;
 use ash::vk;
 
+pub const BINDLESS_SET: u32 = 0;
 pub const SAMPLED_IMAGE_BINDING: u32 = 0;
 pub const STORAGE_IMAGE_BINDING: u32 = 1;
 pub const BINDLESS_BUFFER_BINDING: u32 = 2;
+pub const PUSH_CONSTANT_SIZE: u32 = 256;
 
 pub const BINDLESS_MAX_SAMPLERS: u32 = 16384;
 pub const BINDLESS_MAX_STORAGE: u32 = 16384;
@@ -29,7 +31,7 @@ impl BindlessDescriptorSet {
         let bindings = [
             vk::DescriptorSetLayoutBinding::default()
                 .binding(SAMPLED_IMAGE_BINDING)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
                 .descriptor_count(BINDLESS_MAX_SAMPLERS)
                 .stage_flags(vk::ShaderStageFlags::ALL),
             vk::DescriptorSetLayoutBinding::default()
@@ -59,7 +61,7 @@ impl BindlessDescriptorSet {
 
         let pool_sizes = [
             vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                ty: vk::DescriptorType::SAMPLED_IMAGE,
                 descriptor_count: BINDLESS_MAX_SAMPLERS,
             },
             vk::DescriptorPoolSize {
@@ -95,7 +97,7 @@ impl BindlessDescriptorSet {
         let push_range = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::ALL,
             offset: 0,
-            size: 256,
+            size: PUSH_CONSTANT_SIZE,
         };
 
         let pipeline_layout = unsafe {
@@ -191,5 +193,19 @@ impl BindlessDescriptorSet {
             device.handle.destroy_descriptor_pool(self.pool, None);
             device.handle.destroy_pipeline_layout(self.pipeline_layout, None);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abi_matches_sgpu_shaders() {
+        assert_eq!(BINDLESS_SET as usize, sgpu_shaders::DESCRIPTOR_SET as usize);
+        assert_eq!(SAMPLED_IMAGE_BINDING, sgpu_shaders::SAMPLED_IMAGE_BINDING);
+        assert_eq!(STORAGE_IMAGE_BINDING, sgpu_shaders::STORAGE_IMAGE_BINDING);
+        assert_eq!(BINDLESS_BUFFER_BINDING, sgpu_shaders::BINDLESS_BUFFER_BINDING);
+        assert_eq!(PUSH_CONSTANT_SIZE as usize, sgpu_shaders::MAX_PUSH_CONSTANT_SIZE);
     }
 }

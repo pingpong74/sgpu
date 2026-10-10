@@ -1,0 +1,18 @@
+[package]
+name = "sgpu-examples"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+glam.workspace = true
+sgpu.workspace = true
+winit.workspace = true
+
+[[bin]]
+name = "triangle"
+path = "src/triangle.rs"
+
+[[bin]]
+name = "cube"
+path = "src/cube.rs"

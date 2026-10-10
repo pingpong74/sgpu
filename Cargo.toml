@@ -1,18 +1,23 @@
-[package]
-name = "sgpu"
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+exclude = ["crates/sgpu-examples/shaders"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
+[workspace.dependencies]
+sgpu = { path = "crates/sgpu" }
+sgpu-shaders = { path = "crates/sgpu-shaders" }
 
-[dependencies]
 ash = { version = "0.38", features = ["linked"] }
+glam = "0.33"
 gpu-allocator = "0.28"
 raw-window-handle = "0.6"
 slotmap = "1.0"
 bitflags = "2"
 smallvec = "1"
-
-[dev-dependencies]
 winit = "0.30"
 
 [profile.dev]

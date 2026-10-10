@@ -210,9 +210,25 @@ impl<'a> Default for PipelineOutputs<'a> {
     }
 }
 
+/// A spirv module together with the name of the entry point to run from it.
+pub struct ShaderModule<'a> {
+    pub spirv: &'a [u8],
+    pub entry: &'a str,
+}
+
+impl<'a> Default for ShaderModule<'a> {
+    fn default() -> Self {
+        Self {
+            spirv: &[],
+            entry: "main",
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct RasterizationPipelineDescription<'a> {
-    pub vertex_shader: &'a [u8],
-    pub fragment_shader: &'a [u8],
+    pub vertex: ShaderModule<'a>,
+    pub fragment: ShaderModule<'a>,
 
     pub topology: PrimitiveTopology,
     pub cull_mode: CullMode,
@@ -221,22 +237,6 @@ pub struct RasterizationPipelineDescription<'a> {
     pub depth_stencil: DepthStencilState,
     pub blend_mode: BlendMode,
     pub outputs: PipelineOutputs<'a>,
-}
-
-impl<'a> Default for RasterizationPipelineDescription<'a> {
-    fn default() -> Self {
-        Self {
-            vertex_shader: &[],
-            fragment_shader: &[],
-            topology: PrimitiveTopology::default(),
-            cull_mode: CullMode::default(),
-            front_face: FrontFace::default(),
-            polygon_mode: PolygonMode::default(),
-            depth_stencil: DepthStencilState::default(),
-            blend_mode: BlendMode::default(),
-            outputs: PipelineOutputs::default(),
-        }
-    }
 }
 
 pub struct RasterizationPipeline {

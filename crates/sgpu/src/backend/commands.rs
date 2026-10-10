@@ -5,7 +5,7 @@ use smallvec::{SmallVec, smallvec};
 
 use crate::{Counter, commands::*};
 
-use super::{context::Context, device::Device};
+use super::{context::Context, descriptors::BINDLESS_SET, device::Device};
 
 pub(crate) struct Queues {
     pub(crate) queue_type_to_queue: [usize; 3],
@@ -160,10 +160,10 @@ impl CommandPool {
                 .expect("Failed to begin command buffer");
 
             match self.queue_type {
-                QueueType::Compute => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, 0, &[desc.set], &[]),
+                QueueType::Compute => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, BINDLESS_SET, &[desc.set], &[]),
                 QueueType::Graphics => {
-                    device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, 0, &[desc.set], &[]);
-                    device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, 0, &[desc.set], &[]);
+                    device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::GRAPHICS, desc.pipeline_layout, BINDLESS_SET, &[desc.set], &[]);
+                    device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, BINDLESS_SET, &[desc.set], &[]);
                 }
                 _ => {}
             };

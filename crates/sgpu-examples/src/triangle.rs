@@ -1,9 +1,9 @@
-mod common;
+use std::time::Duration;
 
-use std::time::{Duration, Instant};
-
-use common::*;
 use sgpu::*;
+use sgpu_examples::*;
+
+const SHADERS_SPV: &[u8] = include_bytes!(env!("SHADERS_SPV"));
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -37,8 +37,14 @@ impl Application for App {
         );
 
         let raster_pipe = create_rasterization_pipeline(&RasterizationPipelineDescription {
-            vertex_shader: include_bytes!("shaders/triangle/vertex.spv"),
-            fragment_shader: include_bytes!("shaders/triangle/fragment.spv"),
+            vertex: ShaderModule {
+                spirv: SHADERS_SPV,
+                entry: "triangle::triangle_vs",
+            },
+            fragment: ShaderModule {
+                spirv: SHADERS_SPV,
+                entry: "triangle::triangle_fs",
+            },
             topology: PrimitiveTopology::TriangleList,
             cull_mode: CullMode::None,
             front_face: FrontFace::Clockwise,
@@ -60,7 +66,6 @@ impl Application for App {
 
         let vertices = buffer.as_mut_slice::<Vertex>();
 
-        // fill all
         vertices[0] = Vertex {
             position: [0.0, -0.5],
             _pad0: [0.0; 2],
@@ -161,12 +166,7 @@ impl Application for App {
         self.swapchain.present(&swapchain_img, render_finish);
     }
 
-    fn resize(&mut self, width: u32, height: u32) {
-        self.swapchain.resize(width, height);
-    }
+    fn resize(&mut self, width: u32, height: u32) { self.swapchain.resize(width, height); }
 }
 
-fn main() {
-    add_shader_directory("examples/shaders/triangle/");
-    run::<App>();
-}
+fn main() { run::<App>(); }

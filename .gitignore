@@ -1,1 +1,3 @@
 /target
+/crates/sgpu-examples/shaders/target
+/crates/sgpu-examples/shaders/out
