@@ -1,4 +1,4 @@
-use crate::{Buffer, RasterizationPipeline, backend::Context};
+use crate::{Buffer, PipelineStage, QueryPool, RasterizationPipeline, backend::Context};
 use ash::vk;
 
 pub struct RenderRecorder {
@@ -13,6 +13,12 @@ impl RenderRecorder {
                 .device
                 .handle
                 .cmd_bind_pipeline(self.cmd_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.handle);
+        }
+    }
+
+    pub fn write_timestamp(&self, pool: &QueryPool, query: u32, stage: PipelineStage) {
+        unsafe {
+            self.ctx.device.handle.cmd_write_timestamp2(self.cmd_buffer, stage.to_vk(), pool.raw, query);
         }
     }
 

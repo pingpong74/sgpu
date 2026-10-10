@@ -25,6 +25,8 @@ struct App {
     vertex_buffer: Buffer,
     depth_image: Image,
     pipeline: RasterizationPipeline,
+    timestamp_pool: QueryPool,
+    frame: u64,
 }
 
 fn cube_vertices() -> [Vertex; 36] {
@@ -137,10 +139,12 @@ impl Application for App {
             vertex: ShaderModule {
                 spirv: SHADERS_SPV,
                 entry: "cube::cube_vs",
+                ..Default::default()
             },
             fragment: ShaderModule {
                 spirv: SHADERS_SPV,
                 entry: "cube::cube_fs",
+                ..Default::default()
             },
             topology: PrimitiveTopology::TriangleList,
             cull_mode: CullMode::None,
@@ -163,12 +167,15 @@ impl Application for App {
         vertex_buffer.as_mut_slice::<Vertex>().copy_from_slice(&cube_vertices());
 
         let depth_image = create_depth_image(size.width, size.height);
+        let timestamp_pool = create_query_pool(2);
 
         return App {
             swapchain,
             vertex_buffer,
             depth_image,
             pipeline,
+            timestamp_pool,
+            frame: 0,
         };
     }
 
@@ -184,6 +191,9 @@ impl Application for App {
         let swapchain_img = self.swapchain.acquire_image();
 
         let mut recorder = record(QueueType::Graphics);
+
+        recorder.reset_query_pool(&self.timestamp_pool, 0, 2);
+        recorder.write_timestamp(&self.timestamp_pool, 0, PipelineStage::TOP_OF_PIPE);
 
         recorder.wait_for_swapchain_image(&swapchain_img);
 
@@ -249,9 +259,18 @@ impl Application for App {
             ..Default::default()
         });
 
+        recorder.write_timestamp(&self.timestamp_pool, 1, PipelineStage::BOTTOM_OF_PIPE);
+
         let render_finish = submit(&[recorder]);
 
         self.swapchain.present(&swapchain_img, render_finish);
+
+        self.frame += 1;
+        if self.frame % 60 == 0 {
+            wait(render_finish);
+            let timestamps = self.timestamp_pool.get_timestamps_ns(0, 2);
+            println!("GPU frame: {:.3} ms", (timestamps[1] - timestamps[0]) / 1_000_000.0);
+        }
     }
 
     fn resize(&mut self, width: u32, height: u32) {

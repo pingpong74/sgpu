@@ -210,10 +210,37 @@ impl<'a> Default for PipelineOutputs<'a> {
     }
 }
 
-/// A spirv module together with the name of the entry point to run from it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SpecializationConstant {
+    U32 {
+        id: u32,
+        value: u32,
+    },
+    I32 {
+        id: u32,
+        value: i32,
+    },
+    F32 {
+        id: u32,
+        value: f32,
+    },
+    Bool {
+        id: u32,
+        value: bool,
+    },
+}
+
+impl SpecializationConstant {
+    pub const fn u32(id: u32, value: u32) -> Self { Self::U32 { id, value } }
+    pub const fn i32(id: u32, value: i32) -> Self { Self::I32 { id, value } }
+    pub const fn f32(id: u32, value: f32) -> Self { Self::F32 { id, value } }
+    pub const fn bool(id: u32, value: bool) -> Self { Self::Bool { id, value } }
+}
+
 pub struct ShaderModule<'a> {
     pub spirv: &'a [u8],
     pub entry: &'a str,
+    pub specialization_constants: &'a [SpecializationConstant],
 }
 
 impl<'a> Default for ShaderModule<'a> {
@@ -221,6 +248,7 @@ impl<'a> Default for ShaderModule<'a> {
         Self {
             spirv: &[],
             entry: "main",
+            specialization_constants: &[],
         }
     }
 }

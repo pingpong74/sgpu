@@ -3,6 +3,7 @@ use crate::{
     backend::{Context, InnerSwapchain, Surface},
     commands::{CommandBuffer, QueueType},
     pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
+    query::QueryPool,
     swapchain::{Swapchain, SwapchainDescription},
     types::*,
 };
@@ -83,6 +84,8 @@ pub fn create_rasterization_pipeline(raster_pipeline_desc: &RasterizationPipelin
 pub fn create_compute_pipeline(module: &ShaderModule) -> ComputePipeline {
     return crate::CONTEXT.get().unwrap().create_compute_pipeline(module);
 }
+
+pub fn create_query_pool(query_count: u32) -> QueryPool { return crate::CONTEXT.get().expect("Not initialized").create_query_pool(query_count); }
 
 /// A simple function to check if the counter has already been signaled
 /// Not waits or anything

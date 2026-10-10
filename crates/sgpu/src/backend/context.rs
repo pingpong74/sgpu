@@ -9,6 +9,7 @@ use crate::{
     },
     commands::{CommandBuffer, QueueType},
     pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
+    query::QueryPool,
 };
 
 use super::instance::Instance;
@@ -120,6 +121,13 @@ impl Context {
     pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline { return self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec); }
 
     pub(crate) fn create_compute_pipeline(&self, module: &ShaderModule) -> ComputePipeline { return self.device.create_compute_pipeline(&self.bindless_descriptor_set, module); }
+
+    pub(crate) fn create_query_pool(&self, query_count: u32) -> QueryPool {
+        return QueryPool {
+            raw: self.device.create_query_pool(query_count),
+            query_count,
+        };
+    }
 
     pub(crate) fn poll(&self, counter: Counter) -> bool {
         let (queue_type, value) = counter.decode();

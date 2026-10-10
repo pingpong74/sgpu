@@ -264,6 +264,18 @@ impl CommandBuffer {
         }
     }
 
+    pub fn reset_query_pool(&mut self, pool: &QueryPool, first_query: u32, query_count: u32) {
+        unsafe {
+            self.ctx.device.handle.cmd_reset_query_pool(self.handle, pool.raw, first_query, query_count);
+        }
+    }
+
+    pub fn write_timestamp(&mut self, pool: &QueryPool, query: u32, stage: PipelineStage) {
+        unsafe {
+            self.ctx.device.handle.cmd_write_timestamp2(self.handle, stage.to_vk(), pool.raw, query);
+        }
+    }
+
     pub fn wait_for_swapchain_image(&mut self, image: &AcquiredImage) {
         self.waits.push(vk::SemaphoreSubmitInfo {
             semaphore: image.acquire_semaphore,

@@ -20,10 +20,17 @@ pub struct Vertex {
 }
 
 #[spirv(vertex)]
-pub fn triangle_vs(#[spirv(vertex_index)] vertex_id: u32, #[spirv(position)] out_position: &mut Vec4, out_color: &mut Vec3, #[spirv(push_constant)] push: &PushConstants) {
+pub fn triangle_vs(
+    #[spirv(vertex_index)] vertex_id: u32,
+    #[spirv(spec_constant(id = 0, default = 1))] spec_scale: u32,
+    #[spirv(position)] out_position: &mut Vec4,
+    out_color: &mut Vec3,
+    #[spirv(push_constant)] push: &PushConstants,
+) {
     let vertices = unsafe { ReadOnlyBuffer::<Vertex>::get(push.vertex_buffer) };
     let vertex = unsafe { vertices.load_indexed(vertex_id) };
-    *out_position = vec4(vertex.position[0], vertex.position[1], 0.0, 1.0);
+    let scale = spec_scale as f32;
+    *out_position = vec4(vertex.position[0] * scale, vertex.position[1] * scale, 0.0, 1.0);
     *out_color = Vec3::from_array(vertex.color);
 }
 

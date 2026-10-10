@@ -12,7 +12,7 @@ use crate::{
         resources::{InnerBuffer, InnerImage, InnerImageView},
     },
     commands::QueueType,
-    pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
+    pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule, SpecializationConstant},
 };
 use ash::vk::{self, SemaphoreWaitInfo};
 use gpu_allocator::{
@@ -26,6 +26,38 @@ pub(crate) struct Device {
     pub(crate) physical_device: PhysicalDevice,
     pub(crate) allocator: ManuallyDrop<Mutex<Allocator>>,
     pub(crate) queue_families: SmallVec<[u32; 3]>,
+    pub(crate) timestamp_period: f32,
+}
+
+struct SpecializationData {
+    map_entries: Vec<vk::SpecializationMapEntry>,
+    data: Vec<u8>,
+}
+
+fn build_specialization(constants: &[SpecializationConstant]) -> SpecializationData {
+    let mut map_entries = Vec::with_capacity(constants.len());
+    let mut data = Vec::with_capacity(constants.len() * std::mem::size_of::<u32>());
+
+    for constant in constants {
+        let (id, bytes) = match constant {
+            SpecializationConstant::U32 { id, value } => (*id, value.to_ne_bytes()),
+            SpecializationConstant::I32 { id, value } => (*id, value.to_ne_bytes()),
+            SpecializationConstant::F32 { id, value } => (*id, value.to_ne_bytes()),
+            SpecializationConstant::Bool { id, value } => (*id, (*value as u32).to_ne_bytes()),
+        };
+
+        map_entries.push(vk::SpecializationMapEntry {
+            constant_id: id,
+            offset: data.len() as u32,
+            size: std::mem::size_of::<u32>(),
+        });
+        data.extend_from_slice(&bytes);
+    }
+
+    return SpecializationData {
+        map_entries,
+        data,
+    };
 }
 
 impl Device {
@@ -160,11 +192,14 @@ impl Device {
         })
         .expect("Failed to create allocator");
 
+        let timestamp_period = unsafe { instance.handle.get_physical_device_properties(physical_device.handle) }.limits.timestamp_period;
+
         return Device {
             queue_families: unique_families,
             handle: dev,
             allocator: ManuallyDrop::new(Mutex::new(allocator)),
             physical_device: physical_device,
+            timestamp_period,
         };
     }
 
@@ -411,6 +446,25 @@ impl Device {
         }
     }
 
+    pub(crate) fn create_query_pool(&self, query_count: u32) -> vk::QueryPool {
+        let create_info = vk::QueryPoolCreateInfo::default().query_type(vk::QueryType::TIMESTAMP).query_count(query_count);
+        return unsafe { self.handle.create_query_pool(&create_info, None).expect("Failed to create query pool") };
+    }
+
+    pub(crate) fn destroy_query_pool(&self, pool: vk::QueryPool) {
+        unsafe {
+            self.handle.destroy_query_pool(pool, None);
+        }
+    }
+
+    pub(crate) fn get_query_results_u64(&self, pool: vk::QueryPool, first_query: u32, data: &mut [u64]) {
+        unsafe {
+            self.handle
+                .get_query_pool_results(pool, first_query, data, vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT)
+                .expect("Failed to get query pool results");
+        }
+    }
+
     pub(crate) fn create_raster_pipeline(&self, layout: &BindlessDescriptorSet, desc: &RasterizationPipelineDescription) -> RasterizationPipeline {
         assert!(!desc.vertex.spirv.is_empty(), "vertex shader SPIR-V is empty");
         assert!(!desc.fragment.spirv.is_empty(), "fragment shader SPIR-V is empty");
@@ -421,12 +475,24 @@ impl Device {
         let vert = self.create_shader_module(desc.vertex.spirv);
         let frag = self.create_shader_module(desc.fragment.spirv);
 
+        let vert_spec = build_specialization(desc.vertex.specialization_constants);
+        let frag_spec = build_specialization(desc.fragment.specialization_constants);
+        let vert_spec_info = vk::SpecializationInfo::default().map_entries(&vert_spec.map_entries).data(&vert_spec.data);
+        let frag_spec_info = vk::SpecializationInfo::default().map_entries(&frag_spec.map_entries).data(&frag_spec.data);
+
         let stages = [
-            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::VERTEX).module(vert).name(&vert_entry),
-            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::FRAGMENT).module(frag).name(&frag_entry),
+            vk::PipelineShaderStageCreateInfo::default()
+                .stage(vk::ShaderStageFlags::VERTEX)
+                .module(vert)
+                .name(&vert_entry)
+                .specialization_info(&vert_spec_info),
+            vk::PipelineShaderStageCreateInfo::default()
+                .stage(vk::ShaderStageFlags::FRAGMENT)
+                .module(frag)
+                .name(&frag_entry)
+                .specialization_info(&frag_spec_info),
         ];
 
-        // Bindless — no vertex bindings or attributes
         let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
 
         let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default().topology(desc.topology.to_vk()).primitive_restart_enable(false);
@@ -525,7 +591,14 @@ impl Device {
         let entry = std::ffi::CString::new(module.entry).expect("compute entry point name contains a null byte");
         let shader = self.create_shader_module(module.spirv);
 
-        let shader_stage_info = vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::COMPUTE).module(shader).name(&entry);
+        let spec = build_specialization(module.specialization_constants);
+        let spec_info = vk::SpecializationInfo::default().map_entries(&spec.map_entries).data(&spec.data);
+
+        let shader_stage_info = vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::COMPUTE)
+            .module(shader)
+            .name(&entry)
+            .specialization_info(&spec_info);
 
         let pipeline_info = [vk::ComputePipelineCreateInfo::default().layout(layout.pipeline_layout).stage(shader_stage_info)];
 

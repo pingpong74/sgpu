@@ -40,10 +40,14 @@ impl Application for App {
             vertex: ShaderModule {
                 spirv: SHADERS_SPV,
                 entry: "triangle::triangle_vs",
+                specialization_constants: &[SpecializationConstant::u32(
+                    0, 1,
+                )],
             },
             fragment: ShaderModule {
                 spirv: SHADERS_SPV,
                 entry: "triangle::triangle_fs",
+                ..Default::default()
             },
             topology: PrimitiveTopology::TriangleList,
             cull_mode: CullMode::None,
