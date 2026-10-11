@@ -25,8 +25,10 @@ mod tests {
         cmd.fill_buffer(&buffer, 0, 400, 0xDEADBEEF);
         crate::wait(crate::submit(&[cmd]));
 
-        let data: &[u32] = buffer.as_slice();
-        assert!(data.iter().all(|&x| x == 0xDEADBEEF));
+        {
+            let data = buffer_as_slice::<u32>(&buffer);
+            assert!(data.iter().all(|&x| x == 0xDEADBEEF));
+        }
 
         crate::destroy_buffer(buffer);
     }
@@ -46,8 +48,10 @@ mod tests {
             cmd.fill_buffer(&buffer, 0, 4 * 64, i);
             crate::wait(crate::submit(&[cmd]));
 
-            let data: &[u32] = buffer.as_slice();
-            assert!(data.iter().all(|&x| x == i), "iteration {i} failed");
+            {
+                let data = buffer_as_slice::<u32>(&buffer);
+                assert!(data.iter().all(|&x| x == i), "iteration {i} failed");
+            }
         }
 
         crate::destroy_buffer(buffer);
@@ -78,8 +82,10 @@ mod tests {
                         cmd.fill_buffer(&buffer, 0, BUF_SIZE, val);
                         crate::wait(crate::submit(&[cmd]));
 
-                        let data: &[u32] = buffer.as_slice();
-                        assert!(data.iter().all(|&x| x == val), "thread {i} iter {j} failed");
+                        {
+                            let data = buffer_as_slice::<u32>(&buffer);
+                            assert!(data.iter().all(|&x| x == val), "thread {i} iter {j} failed");
+                        }
                     }
 
                     crate::destroy_buffer(buffer);
@@ -116,8 +122,10 @@ mod tests {
 
         crate::wait(gfx_counter);
 
-        let data: &[u32] = buffer.as_slice();
-        assert!(data.iter().all(|&x| x == 0x12345678));
+        {
+            let data = buffer_as_slice::<u32>(&buffer);
+            assert!(data.iter().all(|&x| x == 0x12345678));
+        }
 
         crate::destroy_buffer(buffer);
     }
@@ -156,7 +164,7 @@ mod tests {
 
         // After draining, resubmit — pools should be reclaimed, not growing forever
         for buf in &buffers {
-            let data: &[u32] = buf.as_slice();
+            let data = buffer_as_slice::<u32>(&buf);
             assert!(data.iter().all(|&x| x == 0xABCD));
         }
 

@@ -33,6 +33,7 @@ fn main() {
         .env_remove("RUSTC")
         .env_remove("RUSTDOC")
         .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER")
         .status()
         .expect("failed to spawn rustup; the sgpu-examples build compiles rust-gpu shaders via crates/sgpu-examples/shaders/rust-toolchain.toml");
     assert!(status.success(), "shader build (compile bin) failed");

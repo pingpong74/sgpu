@@ -73,8 +73,19 @@ impl Instance {
             .message_type(vk::DebugUtilsMessageTypeFlagsEXT::GENERAL | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION)
             .pfn_user_callback(Some(Instance::vulkan_debug_callback));
 
+        const VALIDATION_LAYER: &std::ffi::CStr = c"VK_LAYER_KHRONOS_validation";
+        let layer_names = [VALIDATION_LAYER.as_ptr()];
+
         if sgpu_init_info.enable_validation_layers {
             create_info = create_info.push_next(&mut debug_create_info);
+
+            let layer_available = unsafe { entry.enumerate_instance_layer_properties().map(|layers| layers.iter().any(|layer| std::ffi::CStr::from_ptr(layer.layer_name.as_ptr()) == VALIDATION_LAYER)).unwrap_or(false) };
+
+            if layer_available {
+                create_info = create_info.enabled_layer_names(&layer_names);
+            } else {
+                eprintln!("Warning: VK_LAYER_KHRONOS_validation not available, validation layers disabled");
+            }
         }
 
         let instance = unsafe { entry.create_instance(&create_info, None).expect("Failed to create instance") };

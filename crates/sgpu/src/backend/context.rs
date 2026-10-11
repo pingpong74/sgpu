@@ -67,21 +67,24 @@ impl Context {
         };
     }
 
-    pub(crate) unsafe fn get_buffer_inner(&self, id: &Buffer) -> &InnerBuffer {
-        let ptr = self.buffers.read().unwrap().get(id.id).expect("Invalid Buffer") as *const InnerBuffer;
-        return unsafe { &*ptr };
-    }
-
     pub fn as_slice<T>(&self, buffer: &Buffer) -> &[T] {
-        let inner = unsafe { self.get_buffer_inner(&buffer) };
+        assert!(std::mem::size_of::<T>() > 0, "size must be > 0");
 
-        return unsafe { std::slice::from_raw_parts(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *const T, inner.size as usize / std::mem::size_of::<T>()) };
+        let guard = self.buffers.read().unwrap();
+        let inner = guard.get(buffer.id).expect("Invalid Buffer");
+        let mapped_ptr = inner.mapped_ptr.expect("Buffer needs to be host visible for slice");
+        let len = inner.size as usize / std::mem::size_of::<T>();
+        unsafe { std::slice::from_raw_parts(mapped_ptr as *const T, len) }
     }
 
     pub fn as_mut_slice<T>(&self, buffer: &Buffer) -> &mut [T] {
-        let inner = unsafe { self.get_buffer_inner(&buffer) };
+        assert!(std::mem::size_of::<T>() > 0, "size must be > 0");
 
-        return unsafe { std::slice::from_raw_parts_mut(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *mut T, inner.size as usize / std::mem::size_of::<T>()) };
+        let mut guard = self.buffers.write().unwrap();
+        let inner = guard.get_mut(buffer.id).expect("Invalid Buffer");
+        let mapped_ptr = inner.mapped_ptr.expect("Buffer needs to be host visible for slice");
+        let len = inner.size as usize / std::mem::size_of::<T>();
+        unsafe { std::slice::from_raw_parts_mut(mapped_ptr as *mut T, len) }
     }
 
     pub(crate) fn destroy_buffer(&self, buffer: Buffer) {
@@ -126,6 +129,10 @@ impl Context {
 
     pub(crate) fn destroy_image(&self, image: Image) {
         let inner = self.images.write().unwrap().remove(image.id).expect("Tried to destroy Image twice");
+
+        if let Some(view) = self.image_views.write().unwrap().remove(image.default_view.id) {
+            self.device.destroy_image_view(view);
+        }
 
         self.device.destroy_image(inner);
     }

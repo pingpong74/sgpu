@@ -275,7 +275,16 @@ impl Application for App {
 
     fn resize(&mut self, width: u32, height: u32) {
         self.swapchain.resize(width, height);
+        destroy_image(self.depth_image);
         self.depth_image = create_depth_image(width, height);
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        wait_idle();
+        destroy_image(self.depth_image);
+        destroy_buffer(self.vertex_buffer);
     }
 }
 
