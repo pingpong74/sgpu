@@ -72,6 +72,18 @@ impl Context {
         return unsafe { &*ptr };
     }
 
+    pub fn as_slice<T>(&self, buffer: &Buffer) -> &[T] {
+        let inner = unsafe { self.get_buffer_inner(&buffer) };
+
+        return unsafe { std::slice::from_raw_parts(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *const T, inner.size as usize / std::mem::size_of::<T>()) };
+    }
+
+    pub fn as_mut_slice<T>(&self, buffer: &Buffer) -> &mut [T] {
+        let inner = unsafe { self.get_buffer_inner(&buffer) };
+
+        return unsafe { std::slice::from_raw_parts_mut(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *mut T, inner.size as usize / std::mem::size_of::<T>()) };
+    }
+
     pub(crate) fn destroy_buffer(&self, buffer: Buffer) {
         let inner = self.buffers.write().unwrap().remove(buffer.id).expect("Tried destroy buffer twice");
 
@@ -144,13 +156,7 @@ impl Context {
 
     pub(crate) fn record(&'static self, queue_type: QueueType) -> CommandBuffer {
         let thread_id = std::thread::current().id();
-        return self
-            .thread_cmd_pool_pool
-            .write()
-            .unwrap()
-            .entry(thread_id)
-            .or_insert(self.device.create_thread_command_pools(self))
-            .record(queue_type, self);
+        return self.thread_cmd_pool_pool.write().unwrap().entry(thread_id).or_insert(self.device.create_thread_command_pools(self)).record(queue_type, self);
     }
 
     pub(crate) fn submit(&self, command_buffers: &[CommandBuffer]) -> Counter {

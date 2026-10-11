@@ -40,9 +40,7 @@ impl Application for App {
             vertex: ShaderModule {
                 spirv: SHADERS_SPV,
                 entry: "triangle::triangle_vs",
-                specialization_constants: &[SpecializationConstant::u32(
-                    0, 1,
-                )],
+                specialization_constants: &[SpecializationConstant::u32(0, 1)],
             },
             fragment: ShaderModule {
                 spirv: SHADERS_SPV,
@@ -68,7 +66,7 @@ impl Application for App {
             memory_type: MemoryType::HostVisible,
         });
 
-        let vertices = buffer.as_mut_slice::<Vertex>();
+        let vertices = buffer_as_slice_mut::<Vertex>(&buffer);
 
         vertices[0] = Vertex {
             position: [0.0, -0.5],
@@ -102,7 +100,7 @@ impl Application for App {
         let size = window.inner_size();
 
         {
-            let vertices = self.veretx_buffer.as_mut_slice::<Vertex>();
+            let vertices = buffer_as_slice_mut::<Vertex>(&self.veretx_buffer);
             let time = time.as_secs_f32();
 
             let r = time.sin() * 0.5 + 0.5;

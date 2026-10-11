@@ -119,15 +119,10 @@ impl InnerSwapchain {
         };
 
         let surface_format = {
-            support
-                .formats
-                .iter()
-                .cloned()
-                .find(|f| f.format == swapchain_description.format.to_vk() && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR)
-                .unwrap_or_else(|| {
-                    println!("Using default format for swapchain: {:?}", support.formats[0]);
-                    support.formats[0]
-                })
+            support.formats.iter().cloned().find(|f| f.format == swapchain_description.format.to_vk() && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR).unwrap_or_else(|| {
+                println!("Using default format for swapchain: {:?}", support.formats[0]);
+                support.formats[0]
+            })
         };
 
         let extent = {
@@ -135,12 +130,8 @@ impl InnerSwapchain {
                 support.capabilities.current_extent
             } else {
                 vk::Extent2D {
-                    width: swapchain_description
-                        .width
-                        .clamp(support.capabilities.min_image_extent.width, support.capabilities.max_image_extent.width),
-                    height: swapchain_description
-                        .height
-                        .clamp(support.capabilities.min_image_extent.height, support.capabilities.max_image_extent.height),
+                    width: swapchain_description.width.clamp(support.capabilities.min_image_extent.width, support.capabilities.max_image_extent.width),
+                    height: swapchain_description.height.clamp(support.capabilities.min_image_extent.height, support.capabilities.max_image_extent.height),
                 }
             }
         };
@@ -149,7 +140,11 @@ impl InnerSwapchain {
             let min = support.capabilities.min_image_count;
             let max = support.capabilities.max_image_count;
             let requested = swapchain_description.frames_in_flight;
-            if max == 0 { requested.max(min) } else { requested.clamp(min, max) }
+            if max == 0 {
+                requested.max(min)
+            } else {
+                requested.clamp(min, max)
+            }
         };
 
         let create_info = vk::SwapchainCreateInfoKHR::default()
@@ -204,22 +199,10 @@ impl InnerSwapchain {
             })
             .collect();
 
-        let acquire_semaphores = unsafe {
-            (0..actual_image_count)
-                .map(|_| ctx.device.handle.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap())
-                .collect()
-        };
-        let present_semaphores = unsafe {
-            (0..actual_image_count)
-                .map(|_| ctx.device.handle.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap())
-                .collect()
-        };
+        let acquire_semaphores = unsafe { (0..actual_image_count).map(|_| ctx.device.handle.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap()).collect() };
+        let present_semaphores = unsafe { (0..actual_image_count).map(|_| ctx.device.handle.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap()).collect() };
 
-        let fences = unsafe {
-            (0..actual_image_count)
-                .map(|_| ctx.device.handle.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap())
-                .collect()
-        };
+        let fences = unsafe { (0..actual_image_count).map(|_| ctx.device.handle.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap()).collect() };
 
         return InnerSwapchain {
             ctx,
@@ -244,11 +227,7 @@ impl InnerSwapchain {
             ctx.device.handle.reset_fences(&[self.fences[slot]]).unwrap();
         }
 
-        let acquire_info = vk::AcquireNextImageInfoKHR::default()
-            .swapchain(self.handle)
-            .timeout(u64::MAX)
-            .semaphore(self.acquire_semaphores[slot])
-            .device_mask(1);
+        let acquire_info = vk::AcquireNextImageInfoKHR::default().swapchain(self.handle).timeout(u64::MAX).semaphore(self.acquire_semaphores[slot]).device_mask(1);
 
         let (index, _) = unsafe { self.swapchain_loader.acquire_next_image2(&acquire_info).expect("Failed to acquire image") };
 
@@ -298,15 +277,7 @@ impl InnerSwapchain {
         }
 
         unsafe {
-            self.swapchain_loader
-                .queue_present(
-                    queue.queue,
-                    &vk::PresentInfoKHR::default()
-                        .swapchains(&[self.handle])
-                        .image_indices(&[acquired_image.image_index as u32])
-                        .wait_semaphores(&[acquired_image.present_semaphore]),
-                )
-                .expect("Failed to present image");
+            self.swapchain_loader.queue_present(queue.queue, &vk::PresentInfoKHR::default().swapchains(&[self.handle]).image_indices(&[acquired_image.image_index as u32]).wait_semaphores(&[acquired_image.present_semaphore])).expect("Failed to present image");
         }
 
         self.frame_timeline = (acquired_image.slot + 1) % self.actual_image_count;

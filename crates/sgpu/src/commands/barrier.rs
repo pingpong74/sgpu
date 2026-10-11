@@ -450,16 +450,10 @@ impl CommandBuffer {
 
         let (src_stage, dst_stage, src_access, dst_access) = fold_accesses(barrier.previous_accesses, barrier.next_accesses);
 
-        let mb = vk::MemoryBarrier2::default()
-            .src_stage_mask(src_stage)
-            .src_access_mask(src_access)
-            .dst_stage_mask(dst_stage)
-            .dst_access_mask(dst_access);
+        let mb = vk::MemoryBarrier2::default().src_stage_mask(src_stage).src_access_mask(src_access).dst_stage_mask(dst_stage).dst_access_mask(dst_access);
 
         unsafe {
-            ctx.device
-                .handle
-                .cmd_pipeline_barrier2(self.handle, &vk::DependencyInfo::default().memory_barriers(std::slice::from_ref(&mb)));
+            ctx.device.handle.cmd_pipeline_barrier2(self.handle, &vk::DependencyInfo::default().memory_barriers(std::slice::from_ref(&mb)));
         }
     }
 
@@ -468,9 +462,7 @@ impl CommandBuffer {
         let vk_barrier = build_image_barrier(ctx, barrier);
 
         unsafe {
-            ctx.device
-                .handle
-                .cmd_pipeline_barrier2(self.handle, &vk::DependencyInfo::default().image_memory_barriers(std::slice::from_ref(&vk_barrier)));
+            ctx.device.handle.cmd_pipeline_barrier2(self.handle, &vk::DependencyInfo::default().image_memory_barriers(std::slice::from_ref(&vk_barrier)));
         }
     }
 
@@ -480,11 +472,7 @@ impl CommandBuffer {
 
         let memory_barrier = global.map(|g| {
             let (src_stage, dst_stage, src_access, dst_access) = fold_accesses(g.previous_accesses, g.next_accesses);
-            vk::MemoryBarrier2::default()
-                .src_stage_mask(src_stage)
-                .src_access_mask(src_access)
-                .dst_stage_mask(dst_stage)
-                .dst_access_mask(dst_access)
+            vk::MemoryBarrier2::default().src_stage_mask(src_stage).src_access_mask(src_access).dst_stage_mask(dst_stage).dst_access_mask(dst_access)
         });
 
         let mut dep_info = vk::DependencyInfo::default().image_memory_barriers(&img_barriers);

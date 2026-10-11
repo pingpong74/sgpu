@@ -70,18 +70,10 @@ impl Queue {
             let counter = Counter::encode(self.queue_type, *signal_value);
 
             let signal_infos = [
-                vk::SemaphoreSubmitInfo::default()
-                    .semaphore(self.semaphore)
-                    .value(*signal_value)
-                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS), // how can i chage this??
+                vk::SemaphoreSubmitInfo::default().semaphore(self.semaphore).value(*signal_value).stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS), // how can i chage this??
             ];
 
-            let submit_infos = [
-                vk::SubmitInfo2::default()
-                    .wait_semaphore_infos(&scratch.waits)
-                    .command_buffer_infos(&scratch.cmd_infos)
-                    .signal_semaphore_infos(&signal_infos),
-            ];
+            let submit_infos = [vk::SubmitInfo2::default().wait_semaphore_infos(&scratch.waits).command_buffer_infos(&scratch.cmd_infos).signal_semaphore_infos(&signal_infos)];
 
             unsafe {
                 device.handle.queue_submit2(self.queue, &submit_infos, vk::Fence::null()).expect("vkQueueSubmit2 failed");
@@ -122,11 +114,7 @@ impl CommandPool {
 
     fn reset(&mut self) {
         unsafe {
-            self.ctx
-                .device
-                .handle
-                .reset_command_pool(self.pool, vk::CommandPoolResetFlags::empty())
-                .expect("vkResetCommandPool failed");
+            self.ctx.device.handle.reset_command_pool(self.pool, vk::CommandPoolResetFlags::empty()).expect("vkResetCommandPool failed");
         }
 
         self.in_flight = 0;
@@ -138,16 +126,7 @@ impl CommandPool {
         let desc = &self.ctx.bindless_descriptor_set;
 
         if self.in_flight == self.buffers.len() {
-            let new = unsafe {
-                device
-                    .allocate_command_buffers(
-                        &vk::CommandBufferAllocateInfo::default()
-                            .command_pool(self.pool)
-                            .level(vk::CommandBufferLevel::PRIMARY)
-                            .command_buffer_count(8),
-                    )
-                    .expect("Failed to allocate Command buffer")
-            };
+            let new = unsafe { device.allocate_command_buffers(&vk::CommandBufferAllocateInfo::default().command_pool(self.pool).level(vk::CommandBufferLevel::PRIMARY).command_buffer_count(8)).expect("Failed to allocate Command buffer") };
             self.buffers.extend_from_slice(&new);
         }
 
@@ -155,9 +134,7 @@ impl CommandPool {
         self.in_flight += 1;
 
         unsafe {
-            device
-                .begin_command_buffer(buf, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT))
-                .expect("Failed to begin command buffer");
+            device.begin_command_buffer(buf, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)).expect("Failed to begin command buffer");
 
             match self.queue_type {
                 QueueType::Compute => device.cmd_bind_descriptor_sets(buf, vk::PipelineBindPoint::COMPUTE, desc.pipeline_layout, BINDLESS_SET, &[desc.set], &[]),

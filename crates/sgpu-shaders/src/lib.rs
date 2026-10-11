@@ -8,10 +8,7 @@ use spirv_std::byte_addressable_buffer::ByteAddressableBuffer;
 use spirv_std::memory::{Scope, Semantics};
 use spirv_std::{RuntimeArray, TypedBuffer};
 
-pub use spirv_std::image::{
-    Cubemap, Image1d, Image1dI, Image1dU, Image2d, Image2dI, Image2dU, Image3d, Image3dI, Image3dU, StorageImage1d, StorageImage1dI, StorageImage1dU, StorageImage2d, StorageImage2dI, StorageImage2dU,
-    StorageImage3d, StorageImage3dI, StorageImage3dU,
-};
+pub use spirv_std::image::{Cubemap, Image1d, Image1dI, Image1dU, Image2d, Image2dI, Image2dU, Image3d, Image3dI, Image3dU, StorageImage1d, StorageImage1dI, StorageImage1dU, StorageImage2d, StorageImage2dI, StorageImage2dU, StorageImage3d, StorageImage3dI, StorageImage3dU};
 pub use spirv_std::{ByteAddressableBuffer as ByteAddressBuffer, glam, spirv};
 
 pub const DESCRIPTOR_SET: u32 = 0;
@@ -88,9 +85,7 @@ impl ReadWriteBuffer<'_, u32> {
     pub fn interlocked_max(&mut self, byte_offset: u32, value: u32) -> u32 { unsafe { arch::atomic_u_max::<u32, ATOMIC_SCOPE, ATOMIC_SEMANTICS>(self.word(byte_offset), value) } }
 
     #[inline]
-    pub fn interlocked_compare_exchange(&mut self, byte_offset: u32, compare: u32, value: u32) -> u32 {
-        unsafe { arch::atomic_compare_exchange::<u32, ATOMIC_SCOPE, ATOMIC_SEMANTICS, ATOMIC_SEMANTICS>(self.word(byte_offset), value, compare) }
-    }
+    pub fn interlocked_compare_exchange(&mut self, byte_offset: u32, compare: u32, value: u32) -> u32 { unsafe { arch::atomic_compare_exchange::<u32, ATOMIC_SCOPE, ATOMIC_SEMANTICS, ATOMIC_SEMANTICS>(self.word(byte_offset), value, compare) } }
 
     fn word(&mut self, byte_offset: u32) -> &mut u32 {
         assert!(byte_offset % 4 == 0, "atomic byte offset must be 4-byte aligned");
@@ -109,9 +104,7 @@ impl ReadWriteBuffer<'_, i32> {
     pub fn interlocked_max(&mut self, byte_offset: u32, value: i32) -> i32 { unsafe { arch::atomic_s_max::<i32, ATOMIC_SCOPE, ATOMIC_SEMANTICS>(self.word(byte_offset), value) } }
 
     #[inline]
-    pub fn interlocked_compare_exchange(&mut self, byte_offset: u32, compare: i32, value: i32) -> i32 {
-        unsafe { arch::atomic_compare_exchange::<i32, ATOMIC_SCOPE, ATOMIC_SEMANTICS, ATOMIC_SEMANTICS>(self.word(byte_offset), value, compare) }
-    }
+    pub fn interlocked_compare_exchange(&mut self, byte_offset: u32, compare: i32, value: i32) -> i32 { unsafe { arch::atomic_compare_exchange::<i32, ATOMIC_SCOPE, ATOMIC_SEMANTICS, ATOMIC_SEMANTICS>(self.word(byte_offset), value, compare) } }
 
     fn word(&mut self, byte_offset: u32) -> &mut i32 {
         assert!(byte_offset % 4 == 0, "atomic byte offset must be 4-byte aligned");

@@ -307,10 +307,7 @@ impl CommandBuffer {
 
     pub fn bind_compute_pipeline(&mut self, compute_pipeline: &ComputePipeline) {
         unsafe {
-            self.ctx
-                .device
-                .handle
-                .cmd_bind_pipeline(self.handle, vk::PipelineBindPoint::COMPUTE, compute_pipeline.handle);
+            self.ctx.device.handle.cmd_bind_pipeline(self.handle, vk::PipelineBindPoint::COMPUTE, compute_pipeline.handle);
         }
     }
 
@@ -318,9 +315,7 @@ impl CommandBuffer {
         let ctx = self.ctx;
         let bytes = unsafe { std::slice::from_raw_parts(data as *const T as *const u8, std::mem::size_of::<T>()) };
         unsafe {
-            ctx.device
-                .handle
-                .cmd_push_constants(self.handle, ctx.bindless_descriptor_set.pipeline_layout, vk::ShaderStageFlags::ALL, 0, bytes);
+            ctx.device.handle.cmd_push_constants(self.handle, ctx.bindless_descriptor_set.pipeline_layout, vk::ShaderStageFlags::ALL, 0, bytes);
         }
     }
 
@@ -364,18 +359,14 @@ impl CommandBuffer {
     pub fn draw_indirect_count(&mut self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
         let ctx = self.ctx;
         unsafe {
-            ctx.device
-                .handle
-                .cmd_draw_indirect_count(self.handle, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
+            ctx.device.handle.cmd_draw_indirect_count(self.handle, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
         }
     }
 
     pub fn draw_indexed_indirect_count(&mut self, buffer: &Buffer, offset: u64, count_buffer: &Buffer, count_offset: u64, max_draw_count: u32, stride: u32) {
         let ctx = self.ctx;
         unsafe {
-            ctx.device
-                .handle
-                .cmd_draw_indexed_indirect_count(self.handle, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
+            ctx.device.handle.cmd_draw_indexed_indirect_count(self.handle, buffer.raw, offset, count_buffer.raw, count_offset, max_draw_count, stride);
         }
     }
 
@@ -399,9 +390,7 @@ impl CommandBuffer {
         let ctx = self.ctx;
         let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
-            ctx.device
-                .handle
-                .cmd_copy_buffer_to_image(self.handle, src_buffer.raw, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk);
+            ctx.device.handle.cmd_copy_buffer_to_image(self.handle, src_buffer.raw, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk);
         }
     }
 
@@ -409,9 +398,7 @@ impl CommandBuffer {
         let ctx = self.ctx;
         let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
-            ctx.device
-                .handle
-                .cmd_copy_image_to_buffer(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_buffer.raw, &regions_vk);
+            ctx.device.handle.cmd_copy_image_to_buffer(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_buffer.raw, &regions_vk);
         }
     }
 
@@ -419,9 +406,7 @@ impl CommandBuffer {
         let ctx = self.ctx;
         let region_vk = region.to_vk();
         unsafe {
-            ctx.device
-                .handle
-                .cmd_copy_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, std::slice::from_ref(&region_vk));
+            ctx.device.handle.cmd_copy_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, std::slice::from_ref(&region_vk));
         }
     }
 
@@ -429,9 +414,7 @@ impl CommandBuffer {
         let ctx = self.ctx;
         let regions_vk: SmallVec<[vk::ImageBlit; 4]> = regions.iter().map(|r| r.to_vk()).collect();
         unsafe {
-            ctx.device
-                .handle
-                .cmd_blit_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk, filter.to_vk());
+            ctx.device.handle.cmd_blit_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk, filter.to_vk());
         }
     }
 
@@ -455,15 +438,10 @@ impl CommandBuffer {
             })
         }
 
-        let mut rendering_info = vk::RenderingInfo::default()
-            .flags(rendering_begin_info.rendering_flags.to_vk())
-            .color_attachments(color_attachment_info.as_slice())
-            .layer_count(rendering_begin_info.layer_count)
-            .view_mask(rendering_begin_info.view_mask)
-            .render_area(vk::Rect2D {
-                extent: rendering_begin_info.render_area.extent.to_vk(),
-                offset: rendering_begin_info.render_area.offset.to_vk(),
-            });
+        let mut rendering_info = vk::RenderingInfo::default().flags(rendering_begin_info.rendering_flags.to_vk()).color_attachments(color_attachment_info.as_slice()).layer_count(rendering_begin_info.layer_count).view_mask(rendering_begin_info.view_mask).render_area(vk::Rect2D {
+            extent: rendering_begin_info.render_area.extent.to_vk(),
+            offset: rendering_begin_info.render_area.offset.to_vk(),
+        });
 
         let depth_attachment_info: vk::RenderingAttachmentInfo;
         let stencil_attachment_info: vk::RenderingAttachmentInfo;

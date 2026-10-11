@@ -100,10 +100,7 @@ impl Device {
 
         // Queue priorities (all same)
         let priorities = [1.0_f32];
-        let queue_infos: Vec<_> = unique_families
-            .iter()
-            .map(|&family| vk::DeviceQueueCreateInfo::default().queue_family_index(family).queue_priorities(&priorities))
-            .collect();
+        let queue_infos: Vec<_> = unique_families.iter().map(|&family| vk::DeviceQueueCreateInfo::default().queue_family_index(family).queue_priorities(&priorities)).collect();
 
         // Existing common features
         let supported = unsafe { instance.handle.get_physical_device_features(physical_device.handle) };
@@ -118,10 +115,7 @@ impl Device {
         let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
 
         let mut sync2 = vk::PhysicalDeviceSynchronization2Features::default().synchronization2(true);
-        let mut vk_features_11 = vk::PhysicalDeviceVulkan11Features::default()
-            .shader_draw_parameters(true)
-            .variable_pointers(true)
-            .variable_pointers_storage_buffer(true);
+        let mut vk_features_11 = vk::PhysicalDeviceVulkan11Features::default().shader_draw_parameters(true).variable_pointers(true).variable_pointers_storage_buffer(true);
 
         let mut vk_features_12 = vk::PhysicalDeviceVulkan12Features::default()
             .draw_indirect_count(true)
@@ -159,13 +153,7 @@ impl Device {
             mesh_shader_features = mesh_shader_features.mesh_shader(true).task_shader(true);
         }
 
-        let mut features2 = vk::PhysicalDeviceFeatures2::default()
-            .push_next(&mut dynamic_rendering_features)
-            .push_next(&mut sync2)
-            .push_next(&mut vk_features_11)
-            .push_next(&mut vk_features_12)
-            .push_next(&mut mesh_shader_features)
-            .features(features);
+        let mut features2 = vk::PhysicalDeviceFeatures2::default().push_next(&mut dynamic_rendering_features).push_next(&mut sync2).push_next(&mut vk_features_11).push_next(&mut vk_features_12).push_next(&mut mesh_shader_features).features(features);
 
         if sgpu_init_info.ray_tracing {
             features2 = features2.push_next(&mut accel_struct_features).push_next(&mut rt_pipeline_features).push_next(&mut ray_query_features);
@@ -175,10 +163,7 @@ impl Device {
             features2 = features2.push_next(&mut float_atomic_features);
         }
 
-        let create_info = vk::DeviceCreateInfo::default()
-            .queue_create_infos(&queue_infos)
-            .enabled_extension_names(&device_extensions)
-            .push_next(&mut features2);
+        let create_info = vk::DeviceCreateInfo::default().queue_create_infos(&queue_infos).enabled_extension_names(&device_extensions).push_next(&mut features2);
 
         let dev = unsafe { instance.handle.create_device(physical_device.handle, &create_info, None).expect("Failed to create logical device") };
 
@@ -291,11 +276,7 @@ impl Device {
             vk::SharingMode::CONCURRENT
         };
 
-        let buffer_create_info = vk::BufferCreateInfo::default()
-            .usage(desc.usage.to_vk() | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
-            .size(desc.size)
-            .sharing_mode(sharing_mode)
-            .queue_family_indices(&self.queue_families);
+        let buffer_create_info = vk::BufferCreateInfo::default().usage(desc.usage.to_vk() | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS).size(desc.size).sharing_mode(sharing_mode).queue_family_indices(&self.queue_families);
 
         let buffer = unsafe { self.handle.create_buffer(&buffer_create_info, None).expect("Failed to create buffer ") };
         let memory_requirements = unsafe { self.handle.get_buffer_memory_requirements(buffer) };
@@ -429,13 +410,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) fn create_command_pool(&self, queue_family_index: u32) -> vk::CommandPool {
-        return unsafe {
-            self.handle
-                .create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index), None)
-                .expect("Failed to create command pool")
-        };
-    }
+    pub(crate) fn create_command_pool(&self, queue_family_index: u32) -> vk::CommandPool { return unsafe { self.handle.create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index), None).expect("Failed to create command pool") }; }
 
     #[inline]
     pub(crate) fn destroy_command_pool(&self, pool: vk::CommandPool) {
@@ -459,9 +434,7 @@ impl Device {
 
     pub(crate) fn get_query_results_u64(&self, pool: vk::QueryPool, first_query: u32, data: &mut [u64]) {
         unsafe {
-            self.handle
-                .get_query_pool_results(pool, first_query, data, vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT)
-                .expect("Failed to get query pool results");
+            self.handle.get_query_pool_results(pool, first_query, data, vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT).expect("Failed to get query pool results");
         }
     }
 
@@ -481,34 +454,17 @@ impl Device {
         let frag_spec_info = vk::SpecializationInfo::default().map_entries(&frag_spec.map_entries).data(&frag_spec.data);
 
         let stages = [
-            vk::PipelineShaderStageCreateInfo::default()
-                .stage(vk::ShaderStageFlags::VERTEX)
-                .module(vert)
-                .name(&vert_entry)
-                .specialization_info(&vert_spec_info),
-            vk::PipelineShaderStageCreateInfo::default()
-                .stage(vk::ShaderStageFlags::FRAGMENT)
-                .module(frag)
-                .name(&frag_entry)
-                .specialization_info(&frag_spec_info),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::VERTEX).module(vert).name(&vert_entry).specialization_info(&vert_spec_info),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::FRAGMENT).module(frag).name(&frag_entry).specialization_info(&frag_spec_info),
         ];
 
         let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
 
         let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default().topology(desc.topology.to_vk()).primitive_restart_enable(false);
 
-        let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
-            .depth_clamp_enable(false)
-            .rasterizer_discard_enable(false)
-            .polygon_mode(desc.polygon_mode.to_vk())
-            .cull_mode(desc.cull_mode.to_vk())
-            .front_face(desc.front_face.to_vk())
-            .depth_bias_enable(false)
-            .line_width(1.0);
+        let rasterization = vk::PipelineRasterizationStateCreateInfo::default().depth_clamp_enable(false).rasterizer_discard_enable(false).polygon_mode(desc.polygon_mode.to_vk()).cull_mode(desc.cull_mode.to_vk()).front_face(desc.front_face.to_vk()).depth_bias_enable(false).line_width(1.0);
 
-        let multisample = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1)
-            .sample_shading_enable(false);
+        let multisample = vk::PipelineMultisampleStateCreateInfo::default().rasterization_samples(vk::SampleCountFlags::TYPE_1).sample_shading_enable(false);
 
         let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
             .depth_test_enable(desc.depth_stencil.depth_test)
@@ -535,10 +491,7 @@ impl Device {
 
         let stencil_format = desc.outputs.stencil.map(|f| f.to_vk()).unwrap_or(vk::Format::UNDEFINED);
 
-        let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
-            .color_attachment_formats(&color_formats)
-            .depth_attachment_format(depth_format)
-            .stencil_attachment_format(stencil_format);
+        let mut rendering_info = vk::PipelineRenderingCreateInfo::default().color_attachment_formats(&color_formats).depth_attachment_format(depth_format).stencil_attachment_format(stencil_format);
 
         let create_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&stages)
@@ -553,11 +506,7 @@ impl Device {
             .layout(layout.pipeline_layout)
             .push_next(&mut rendering_info);
 
-        let handle = unsafe {
-            self.handle
-                .create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&create_info), None)
-                .expect("raster pipeline creation failed")[0]
-        };
+        let handle = unsafe { self.handle.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&create_info), None).expect("raster pipeline creation failed")[0] };
 
         unsafe {
             self.handle.destroy_shader_module(vert, None);
@@ -571,11 +520,7 @@ impl Device {
         assert!(spirv.len() % 4 == 0, "SPIR-V must be 4-byte aligned");
 
         let words: Vec<u32> = spirv.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
-        unsafe {
-            self.handle
-                .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None)
-                .expect("shader module creation failed")
-        }
+        unsafe { self.handle.create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None).expect("shader module creation failed") }
     }
 
     #[inline]
@@ -594,19 +539,11 @@ impl Device {
         let spec = build_specialization(module.specialization_constants);
         let spec_info = vk::SpecializationInfo::default().map_entries(&spec.map_entries).data(&spec.data);
 
-        let shader_stage_info = vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::COMPUTE)
-            .module(shader)
-            .name(&entry)
-            .specialization_info(&spec_info);
+        let shader_stage_info = vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::COMPUTE).module(shader).name(&entry).specialization_info(&spec_info);
 
         let pipeline_info = [vk::ComputePipelineCreateInfo::default().layout(layout.pipeline_layout).stage(shader_stage_info)];
 
-        let pipeline = unsafe {
-            self.handle
-                .create_compute_pipelines(vk::PipelineCache::null(), &pipeline_info, None)
-                .expect("Failed to create compute pipeline")
-        }[0];
+        let pipeline = unsafe { self.handle.create_compute_pipelines(vk::PipelineCache::null(), &pipeline_info, None).expect("Failed to create compute pipeline") }[0];
 
         unsafe {
             self.handle.destroy_shader_module(shader, None);
@@ -619,9 +556,7 @@ impl Device {
 
     pub(crate) fn wait_queue(&self, queue: &Queue, value: u64) {
         unsafe {
-            self.handle
-                .wait_semaphores(&SemaphoreWaitInfo::default().semaphores(&[queue.semaphore]).values(&[value]), u64::MAX)
-                .expect("Failed to wait on Semaphore");
+            self.handle.wait_semaphores(&SemaphoreWaitInfo::default().semaphores(&[queue.semaphore]).values(&[value]), u64::MAX).expect("Failed to wait on Semaphore");
         }
     }
 

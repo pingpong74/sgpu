@@ -112,9 +112,7 @@ bitflags::bitflags! {
 
 impl BufferUsage {
     #[inline]
-    pub const fn to_vk(self) -> vk::BufferUsageFlags {
-        vk::BufferUsageFlags::from_raw(self.bits())
-    }
+    pub const fn to_vk(self) -> vk::BufferUsageFlags { vk::BufferUsageFlags::from_raw(self.bits()) }
 }
 
 /// Buffer descriptions, create mapped works only for perfer host memory type
@@ -156,9 +154,7 @@ bitflags::bitflags! {
 
 impl ImageUsage {
     #[inline]
-    pub const fn to_vk(self) -> vk::ImageUsageFlags {
-        vk::ImageUsageFlags::from_raw(self.bits())
-    }
+    pub const fn to_vk(self) -> vk::ImageUsageFlags { vk::ImageUsageFlags::from_raw(self.bits()) }
 }
 
 bitflags::bitflags! {
@@ -182,9 +178,7 @@ bitflags::bitflags! {
 
 impl ImageCreateFlags {
     #[inline]
-    pub const fn to_vk(self) -> vk::ImageCreateFlags {
-        vk::ImageCreateFlags::from_raw(self.bits())
-    }
+    pub const fn to_vk(self) -> vk::ImageCreateFlags { vk::ImageCreateFlags::from_raw(self.bits()) }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -372,9 +366,7 @@ bitflags::bitflags! {
 
 impl ImageAspect {
     #[inline]
-    pub const fn to_vk(self) -> vk::ImageAspectFlags {
-        vk::ImageAspectFlags::from_raw(self.bits())
-    }
+    pub const fn to_vk(self) -> vk::ImageAspectFlags { vk::ImageAspectFlags::from_raw(self.bits()) }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -400,21 +392,7 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn descriptor_index(&self) -> u32 {
-        return self.id.data().as_ffi() as u32;
-    }
-
-    pub fn as_slice<T>(&self) -> &[T] {
-        let inner = unsafe { crate::CONTEXT.get().unwrap().get_buffer_inner(self) };
-
-        return unsafe { std::slice::from_raw_parts(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *const T, inner.size as usize / std::mem::size_of::<T>()) };
-    }
-
-    pub fn as_mut_slice<T>(&self) -> &mut [T] {
-        let inner = unsafe { crate::CONTEXT.get().unwrap().get_buffer_inner(self) };
-
-        return unsafe { std::slice::from_raw_parts_mut(inner.mapped_ptr.expect("Buffer needs to be host visible for slice") as *mut T, inner.size as usize / std::mem::size_of::<T>()) };
-    }
+    pub fn descriptor_index(&self) -> u32 { return self.id.data().as_ffi() as u32; }
 }
 
 /// A Vulkan image, used to create and use image views
@@ -431,9 +409,7 @@ impl Image {
         return ctx.create_image_view(image_view_desc, *self);
     }
 
-    pub fn default_view(&self) -> ImageView {
-        return self.default_view;
-    }
+    pub fn default_view(&self) -> ImageView { return self.default_view; }
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]

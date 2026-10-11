@@ -164,7 +164,7 @@ impl Application for App {
             size: (std::mem::size_of::<Vertex>() * 36) as u64,
             memory_type: MemoryType::HostVisible,
         });
-        vertex_buffer.as_mut_slice::<Vertex>().copy_from_slice(&cube_vertices());
+        buffer_as_slice_mut::<Vertex>(&vertex_buffer).copy_from_slice(&cube_vertices());
 
         let depth_image = create_depth_image(size.width, size.height);
         let timestamp_pool = create_query_pool(2);

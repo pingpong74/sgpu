@@ -29,35 +29,12 @@ impl BindlessDescriptorSet {
         let mut binding_flags = vk::DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&flags);
 
         let bindings = [
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(SAMPLED_IMAGE_BINDING)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count(BINDLESS_MAX_SAMPLERS)
-                .stage_flags(vk::ShaderStageFlags::ALL),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(STORAGE_IMAGE_BINDING)
-                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                .descriptor_count(BINDLESS_MAX_STORAGE)
-                .stage_flags(vk::ShaderStageFlags::ALL),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(BINDLESS_BUFFER_BINDING)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(BINDLESS_MAX_BUFFERS)
-                .stage_flags(vk::ShaderStageFlags::ALL),
+            vk::DescriptorSetLayoutBinding::default().binding(SAMPLED_IMAGE_BINDING).descriptor_type(vk::DescriptorType::SAMPLED_IMAGE).descriptor_count(BINDLESS_MAX_SAMPLERS).stage_flags(vk::ShaderStageFlags::ALL),
+            vk::DescriptorSetLayoutBinding::default().binding(STORAGE_IMAGE_BINDING).descriptor_type(vk::DescriptorType::STORAGE_IMAGE).descriptor_count(BINDLESS_MAX_STORAGE).stage_flags(vk::ShaderStageFlags::ALL),
+            vk::DescriptorSetLayoutBinding::default().binding(BINDLESS_BUFFER_BINDING).descriptor_type(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(BINDLESS_MAX_BUFFERS).stage_flags(vk::ShaderStageFlags::ALL),
         ];
 
-        let layout = unsafe {
-            device
-                .handle
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::default()
-                        .bindings(&bindings)
-                        .flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
-                        .push_next(&mut binding_flags),
-                    None,
-                )
-                .expect("bindless layout creation failed")
-        };
+        let layout = unsafe { device.handle.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings).flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL).push_next(&mut binding_flags), None).expect("bindless layout creation failed") };
 
         let pool_sizes = [
             vk::DescriptorPoolSize {
@@ -74,25 +51,9 @@ impl BindlessDescriptorSet {
             },
         ];
 
-        let pool = unsafe {
-            device
-                .handle
-                .create_descriptor_pool(
-                    &vk::DescriptorPoolCreateInfo::default()
-                        .pool_sizes(&pool_sizes)
-                        .max_sets(1)
-                        .flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND),
-                    None,
-                )
-                .expect("bindless pool creation failed")
-        };
+        let pool = unsafe { device.handle.create_descriptor_pool(&vk::DescriptorPoolCreateInfo::default().pool_sizes(&pool_sizes).max_sets(1).flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND), None).expect("bindless pool creation failed") };
 
-        let set = unsafe {
-            device
-                .handle
-                .allocate_descriptor_sets(&vk::DescriptorSetAllocateInfo::default().descriptor_pool(pool).set_layouts(std::slice::from_ref(&layout)))
-                .expect("bindless set allocation failed")[0]
-        };
+        let set = unsafe { device.handle.allocate_descriptor_sets(&vk::DescriptorSetAllocateInfo::default().descriptor_pool(pool).set_layouts(std::slice::from_ref(&layout))).expect("bindless set allocation failed")[0] };
 
         let push_range = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::ALL,
@@ -100,12 +61,7 @@ impl BindlessDescriptorSet {
             size: PUSH_CONSTANT_SIZE,
         };
 
-        let pipeline_layout = unsafe {
-            device
-                .handle
-                .create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default().set_layouts(&[layout]).push_constant_ranges(&[push_range]), None)
-                .unwrap()
-        };
+        let pipeline_layout = unsafe { device.handle.create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default().set_layouts(&[layout]).push_constant_ranges(&[push_range]), None).unwrap() };
 
         return BindlessDescriptorSet {
             layout,
@@ -124,15 +80,7 @@ impl BindlessDescriptorSet {
             },
         ];
 
-        let write_info = [
-            vk::WriteDescriptorSet::default()
-                .buffer_info(&buffer_info)
-                .dst_set(self.set)
-                .dst_binding(BINDLESS_BUFFER_BINDING)
-                .dst_array_element(index)
-                .descriptor_count(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER),
-        ];
+        let write_info = [vk::WriteDescriptorSet::default().buffer_info(&buffer_info).dst_set(self.set).dst_binding(BINDLESS_BUFFER_BINDING).dst_array_element(index).descriptor_count(1).descriptor_type(vk::DescriptorType::STORAGE_BUFFER)];
 
         unsafe {
             device.handle.update_descriptor_sets(&write_info, &[]);
@@ -148,15 +96,7 @@ impl BindlessDescriptorSet {
             },
         ];
 
-        let write_info = [
-            vk::WriteDescriptorSet::default()
-                .image_info(&sampler_info)
-                .dst_set(self.set)
-                .dst_binding(SAMPLED_IMAGE_BINDING)
-                .dst_array_element(index)
-                .descriptor_count(1)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE),
-        ];
+        let write_info = [vk::WriteDescriptorSet::default().image_info(&sampler_info).dst_set(self.set).dst_binding(SAMPLED_IMAGE_BINDING).dst_array_element(index).descriptor_count(1).descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)];
 
         unsafe {
             device.handle.update_descriptor_sets(&write_info, &[]);
@@ -172,15 +112,7 @@ impl BindlessDescriptorSet {
             },
         ];
 
-        let write_info = [
-            vk::WriteDescriptorSet::default()
-                .image_info(&sampler_info)
-                .dst_set(self.set)
-                .dst_binding(STORAGE_IMAGE_BINDING)
-                .dst_array_element(index)
-                .descriptor_count(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE),
-        ];
+        let write_info = [vk::WriteDescriptorSet::default().image_info(&sampler_info).dst_set(self.set).dst_binding(STORAGE_IMAGE_BINDING).dst_array_element(index).descriptor_count(1).descriptor_type(vk::DescriptorType::STORAGE_IMAGE)];
 
         unsafe {
             device.handle.update_descriptor_sets(&write_info, &[]);

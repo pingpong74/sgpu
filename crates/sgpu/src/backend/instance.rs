@@ -113,12 +113,7 @@ impl Instance {
     }
 
     #[allow(unused)]
-    unsafe extern "system" fn vulkan_debug_callback(
-        severity: ash::vk::DebugUtilsMessageSeverityFlagsEXT,
-        types: ash::vk::DebugUtilsMessageTypeFlagsEXT,
-        data: *const ash::vk::DebugUtilsMessengerCallbackDataEXT,
-        _user: *mut std::ffi::c_void,
-    ) -> ash::vk::Bool32 {
+    unsafe extern "system" fn vulkan_debug_callback(severity: ash::vk::DebugUtilsMessageSeverityFlagsEXT, types: ash::vk::DebugUtilsMessageTypeFlagsEXT, data: *const ash::vk::DebugUtilsMessengerCallbackDataEXT, _user: *mut std::ffi::c_void) -> ash::vk::Bool32 {
         let message = unsafe { std::ffi::CStr::from_ptr((*data).p_message).to_string_lossy().into_owned() };
         println!("[VULKAN, {:?} {:?}]: {}", severity, types, message);
 

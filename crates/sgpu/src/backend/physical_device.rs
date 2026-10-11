@@ -51,7 +51,11 @@ impl PhysicalDevice {
                         ash::vk::PhysicalDeviceType::INTEGRATED_GPU => 100,
                         _ => 10,
                     };
-                    let completeness_score = if qf.is_complete() { 100 } else { 10 };
+                    let completeness_score = if qf.is_complete() {
+                        100
+                    } else {
+                        10
+                    };
                     completeness_score + dev_score
                 };
 
@@ -94,11 +98,7 @@ impl PhysicalDevice {
             }
 
             // Prefer dedicated transfer.
-            if family.queue_flags.contains(ash::vk::QueueFlags::TRANSFER)
-                && !family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS)
-                && !family.queue_flags.contains(ash::vk::QueueFlags::COMPUTE)
-                && transfer.is_none()
-            {
+            if family.queue_flags.contains(ash::vk::QueueFlags::TRANSFER) && !family.queue_flags.contains(ash::vk::QueueFlags::GRAPHICS) && !family.queue_flags.contains(ash::vk::QueueFlags::COMPUTE) && transfer.is_none() {
                 transfer = Some(index);
             }
         }
