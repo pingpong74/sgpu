@@ -21,9 +21,15 @@ pub(crate) struct Queue {
     pub(crate) queue_type: QueueType,
     pub(crate) semaphore: vk::Semaphore,
     pub(crate) cpu_signaled_value: Mutex<u64>, // mutex is okay as this enforeces the vulkan constraint of queue being single threaded
+    pub(crate) queue_lock: Mutex<()>,
 }
 
 impl Queue {
+    pub(crate) fn with_lock<R, F: FnOnce(&Self) -> R>(&self, f: F) -> R {
+        let _gaurd = self.queue_lock.lock().unwrap();
+        return f(self);
+    }
+
     pub(crate) fn submit(&self, device: &Device, command_buffers: &[CommandBuffer]) -> Counter {
         // a submit scartch to reuse memory, idk if this is needed but here goes nothing ig
         struct SubmitScratch {
@@ -56,30 +62,32 @@ impl Queue {
         // man do i even need a scratch..
         // hmm
         // submit is called so many times probs can just use it
-        return SUBMIT_SCRATCH.with(|s| {
-            let mut scratch = s.borrow_mut();
-            scratch.clear();
+        return self.with_lock(|queue| {
+            SUBMIT_SCRATCH.with(|s| {
+                let mut scratch = s.borrow_mut();
+                scratch.clear();
 
-            for cmd in command_buffers {
-                scratch.waits.extend_from_slice(&cmd.waits);
-                scratch.cmd_infos.push(vk::CommandBufferSubmitInfo::default().command_buffer(cmd.handle));
-            }
+                for cmd in command_buffers {
+                    scratch.waits.extend_from_slice(&cmd.waits);
+                    scratch.cmd_infos.push(vk::CommandBufferSubmitInfo::default().command_buffer(cmd.handle));
+                }
 
-            let mut signal_value = self.cpu_signaled_value.lock().unwrap();
-            *signal_value += 1;
-            let counter = Counter::encode(self.queue_type, *signal_value);
+                let mut signal_value = queue.cpu_signaled_value.lock().unwrap();
+                *signal_value += 1;
+                let counter = Counter::encode(queue.queue_type, *signal_value);
 
-            let signal_infos = [
-                vk::SemaphoreSubmitInfo::default().semaphore(self.semaphore).value(*signal_value).stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS), // how can i chage this??
-            ];
+                let signal_infos = [
+                    vk::SemaphoreSubmitInfo::default().semaphore(queue.semaphore).value(*signal_value).stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS), // how can i chage this??
+                ];
 
-            let submit_infos = [vk::SubmitInfo2::default().wait_semaphore_infos(&scratch.waits).command_buffer_infos(&scratch.cmd_infos).signal_semaphore_infos(&signal_infos)];
+                let submit_infos = [vk::SubmitInfo2::default().wait_semaphore_infos(&scratch.waits).command_buffer_infos(&scratch.cmd_infos).signal_semaphore_infos(&signal_infos)];
 
-            unsafe {
-                device.handle.queue_submit2(self.queue, &submit_infos, vk::Fence::null()).expect("vkQueueSubmit2 failed");
-            }
+                unsafe {
+                    device.handle.queue_submit2(queue.queue, &submit_infos, vk::Fence::null()).expect("vkQueueSubmit2 failed");
+                }
 
-            counter
+                counter
+            })
         });
     }
 

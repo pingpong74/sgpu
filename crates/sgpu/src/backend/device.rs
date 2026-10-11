@@ -208,6 +208,7 @@ impl Device {
                 queue_type: queue_type,
                 semaphore: create_semaphore(),
                 cpu_signaled_value: Mutex::new(0),
+                queue_lock: Mutex::new(()),
             }
         };
 

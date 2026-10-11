@@ -245,7 +245,7 @@ impl InnerSwapchain {
         let (queue_id, value) = counter.decode();
         let queue = ctx.queues.get_queue(queue_id);
 
-        unsafe {
+        queue.with_lock(|queue| unsafe {
             ctx.device
                 .handle
                 .queue_submit2(
@@ -274,11 +274,9 @@ impl InnerSwapchain {
                     self.fences[acquired_image.slot],
                 )
                 .unwrap();
-        }
 
-        unsafe {
             self.swapchain_loader.queue_present(queue.queue, &vk::PresentInfoKHR::default().swapchains(&[self.handle]).image_indices(&[acquired_image.image_index as u32]).wait_semaphores(&[acquired_image.present_semaphore])).expect("Failed to present image");
-        }
+        });
 
         self.frame_timeline = (acquired_image.slot + 1) % self.actual_image_count;
     }
