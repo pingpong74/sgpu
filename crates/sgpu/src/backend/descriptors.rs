@@ -63,18 +63,18 @@ impl BindlessDescriptorSet {
 
         let pipeline_layout = unsafe { device.handle.create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default().set_layouts(&[layout]).push_constant_ranges(&[push_range]), None).unwrap() };
 
-        return BindlessDescriptorSet {
+        BindlessDescriptorSet {
             layout,
             pool,
             set,
             pipeline_layout,
-        };
+        }
     }
 
     pub(crate) fn write_buffer(&self, device: &Device, buffer: vk::Buffer, index: u32) {
         let buffer_info = [
             vk::DescriptorBufferInfo {
-                buffer: buffer,
+                buffer,
                 offset: 0,
                 range: vk::WHOLE_SIZE,
             },
@@ -90,7 +90,7 @@ impl BindlessDescriptorSet {
     pub(crate) fn write_sampled_image(&self, device: &Device, image_view: vk::ImageView, index: u32) {
         let sampler_info = [
             vk::DescriptorImageInfo {
-                image_view: image_view,
+                image_view,
                 image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 sampler: vk::Sampler::null(),
             },
@@ -106,7 +106,7 @@ impl BindlessDescriptorSet {
     pub(crate) fn write_storage_image(&self, device: &Device, image_view: vk::ImageView, index: u32) {
         let sampler_info = [
             vk::DescriptorImageInfo {
-                image_view: image_view,
+                image_view,
                 image_layout: vk::ImageLayout::GENERAL,
                 sampler: vk::Sampler::null(),
             },

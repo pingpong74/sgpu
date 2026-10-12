@@ -22,7 +22,7 @@ pub struct AcquiredImage {
 
 impl AcquiredImage {
     #[inline]
-    pub fn image(&self) -> Image { return self.image; }
+    pub fn image(&self) -> Image { self.image }
 }
 
 pub struct Swapchain {
@@ -47,7 +47,7 @@ impl Swapchain {
         self.inner = new;
     }
 
-    pub fn acquire_image(&mut self) -> AcquiredImage { return self.inner.acquire_image(); }
+    pub fn acquire_image(&mut self) -> AcquiredImage { self.inner.acquire_image() }
 
     pub fn present(&mut self, accquired_image: &AcquiredImage, counter: Counter) { self.inner.present(accquired_image, counter); }
 }

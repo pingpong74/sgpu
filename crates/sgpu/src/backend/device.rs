@@ -54,10 +54,10 @@ fn build_specialization(constants: &[SpecializationConstant]) -> SpecializationD
         data.extend_from_slice(&bytes);
     }
 
-    return SpecializationData {
+    SpecializationData {
         map_entries,
         data,
-    };
+    }
 }
 
 impl Device {
@@ -88,7 +88,7 @@ impl Device {
         }
 
         let physical_device = {
-            let dev = PhysicalDevice::select_physical_device(&instance, &device_extensions);
+            let dev = PhysicalDevice::select_physical_device(instance, &device_extensions);
             if dev.is_none() {
                 panic!("Failed to find vulkan compatible device")
             }
@@ -179,13 +179,13 @@ impl Device {
 
         let timestamp_period = unsafe { instance.handle.get_physical_device_properties(physical_device.handle) }.limits.timestamp_period;
 
-        return Device {
+        Device {
             queue_families: unique_families,
             handle: dev,
             allocator: ManuallyDrop::new(Mutex::new(allocator)),
-            physical_device: physical_device,
+            physical_device,
             timestamp_period,
-        };
+        }
     }
 
     pub(crate) fn get_queues(&self) -> Queues {
@@ -205,7 +205,7 @@ impl Device {
 
             Queue {
                 queue: self.handle.get_device_queue(family, 0),
-                queue_type: queue_type,
+                queue_type,
                 semaphore: create_semaphore(),
                 cpu_signaled_value: Mutex::new(0),
                 queue_lock: Mutex::new(()),
@@ -234,10 +234,10 @@ impl Device {
             queues.push(create_queue(transfer_family, QueueType::Transfer));
         }
 
-        return Queues {
+        Queues {
             queue_type_to_queue,
             queues,
-        };
+        }
     }
 
     pub(crate) fn create_thread_command_pools(&self, ctx: &'static Context) -> ThreadCommandPools {
@@ -264,10 +264,10 @@ impl Device {
             rings.push(CommandPoolRing::new(QueueType::Transfer, transfer_family, 3, ctx));
         }
 
-        return ThreadCommandPools {
+        ThreadCommandPools {
             queue_type_to_queue,
             rings,
-        };
+        }
     }
 
     pub(crate) fn create_buffer(&self, desc: &BufferDescription) -> InnerBuffer {
@@ -303,13 +303,13 @@ impl Device {
             _ => None,
         };
 
-        return InnerBuffer {
-            buffer: buffer,
+        InnerBuffer {
+            buffer,
             size: desc.size,
             device_address: buffer_address,
             mapped_ptr: mapper_ptr,
             allocation,
-        };
+        }
     }
 
     pub(crate) fn destroy_buffer(&self, buffer: InnerBuffer) {
@@ -358,12 +358,12 @@ impl Device {
             self.handle.bind_image_memory(image, allocation.memory(), allocation.offset()).expect("Failed to bind image memory");
         }
 
-        return InnerImage {
-            image: image,
+        InnerImage {
+            image,
             mem_requirements: memory_requirements,
-            allocation: allocation,
+            allocation,
             format: desc.format.to_vk(),
-        };
+        }
     }
 
     pub(crate) fn create_image_view(&self, image: &InnerImage, desc: &ImageViewDescription) -> InnerImageView {
@@ -390,11 +390,11 @@ impl Device {
 
         let view = unsafe { self.handle.create_image_view(&image_view_create_info, None).expect("Failed to create Image view") };
 
-        return InnerImageView {
-            view: view,
+        InnerImageView {
+            view,
             image: image.image,
             subresources: subresources.to_vk_subresource_range(),
-        };
+        }
     }
 
     pub(crate) fn destroy_image_view(&self, image_view: InnerImageView) {
@@ -411,7 +411,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) fn create_command_pool(&self, queue_family_index: u32) -> vk::CommandPool { return unsafe { self.handle.create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index), None).expect("Failed to create command pool") }; }
+    pub(crate) fn create_command_pool(&self, queue_family_index: u32) -> vk::CommandPool { unsafe { self.handle.create_command_pool(&vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index), None).expect("Failed to create command pool") } }
 
     #[inline]
     pub(crate) fn destroy_command_pool(&self, pool: vk::CommandPool) {
@@ -424,7 +424,7 @@ impl Device {
 
     pub(crate) fn create_query_pool(&self, query_count: u32) -> vk::QueryPool {
         let create_info = vk::QueryPoolCreateInfo::default().query_type(vk::QueryType::TIMESTAMP).query_count(query_count);
-        return unsafe { self.handle.create_query_pool(&create_info, None).expect("Failed to create query pool") };
+        unsafe { self.handle.create_query_pool(&create_info, None).expect("Failed to create query pool") }
     }
 
     pub(crate) fn destroy_query_pool(&self, pool: vk::QueryPool) {
@@ -514,13 +514,13 @@ impl Device {
             self.handle.destroy_shader_module(frag, None);
         }
 
-        return RasterizationPipeline { handle };
+        RasterizationPipeline { handle }
     }
 
     fn create_shader_module(&self, spirv: &[u8]) -> vk::ShaderModule {
-        assert!(spirv.len() % 4 == 0, "SPIR-V must be 4-byte aligned");
+        assert!(spirv.len().is_multiple_of(4), "SPIR-V must be 4-byte aligned");
 
-        let words: Vec<u32> = spirv.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+        let words: Vec<u32> = spirv.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
         unsafe { self.handle.create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None).expect("shader module creation failed") }
     }
 
@@ -550,9 +550,9 @@ impl Device {
             self.handle.destroy_shader_module(shader, None);
         }
 
-        return ComputePipeline {
+        ComputePipeline {
             handle: pipeline,
-        };
+        }
     }
 
     pub(crate) fn wait_queue(&self, queue: &Queue, value: u64) {

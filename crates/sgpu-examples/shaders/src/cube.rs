@@ -19,8 +19,8 @@ pub struct Vertex {
 
 #[spirv(vertex)]
 pub fn cube_vs(#[spirv(vertex_index)] vertex_id: u32, #[spirv(position)] out_position: &mut Vec4, out_color: &mut Vec3, #[spirv(push_constant)] push: &PushConstants) {
-    let vertices = unsafe { ReadOnlyBuffer::<Vertex>::get(push.vertex_buffer) };
-    let vertex = unsafe { vertices.load_indexed(vertex_id) };
+    let vertices = ReadOnlyBuffer::<Vertex>::get(push.vertex_buffer);
+    let vertex = vertices.load_indexed(vertex_id);
     let position = Vec4::new(vertex.position[0], vertex.position[1], vertex.position[2], 1.0);
     *out_position = Mat4::from_cols_array(&push.mvp) * position;
     *out_color = Vec3::from_array(vertex.color);

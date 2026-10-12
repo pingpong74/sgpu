@@ -13,7 +13,7 @@ pub(crate) struct Queues {
 }
 
 impl Queues {
-    pub(crate) fn get_queue(&self, queue_type: QueueType) -> &Queue { return &self.queues[self.queue_type_to_queue[queue_type as usize]]; }
+    pub(crate) fn get_queue(&self, queue_type: QueueType) -> &Queue { &self.queues[self.queue_type_to_queue[queue_type as usize]] }
 }
 
 pub(crate) struct Queue {
@@ -27,7 +27,7 @@ pub(crate) struct Queue {
 impl Queue {
     pub(crate) fn with_lock<R, F: FnOnce(&Self) -> R>(&self, f: F) -> R {
         let _gaurd = self.queue_lock.lock().unwrap();
-        return f(self);
+        f(self)
     }
 
     pub(crate) fn submit(&self, device: &Device, command_buffers: &[CommandBuffer]) -> Counter {
@@ -46,10 +46,10 @@ impl Queue {
 
         // do i even need thread local here
         thread_local! {
-            static SUBMIT_SCRATCH: RefCell<SubmitScratch> = RefCell::new(SubmitScratch {
+            static SUBMIT_SCRATCH: RefCell<SubmitScratch> = const { RefCell::new(SubmitScratch {
                 waits: Vec::new(),
                 cmd_infos: Vec::new(),
-            });
+            }) };
         }
 
         // end all command buffers
@@ -62,7 +62,7 @@ impl Queue {
         // man do i even need a scratch..
         // hmm
         // submit is called so many times probs can just use it
-        return self.with_lock(|queue| {
+        self.with_lock(|queue| {
             SUBMIT_SCRATCH.with(|s| {
                 let mut scratch = s.borrow_mut();
                 scratch.clear();
@@ -88,12 +88,12 @@ impl Queue {
 
                 counter
             })
-        });
+        })
     }
 
     pub(crate) fn poll(&self, device: &Device, value: u64) -> bool {
         let current_value = unsafe { device.handle.get_semaphore_counter_value(self.semaphore).unwrap() };
-        return current_value >= value;
+        current_value >= value
     }
 }
 
@@ -110,14 +110,14 @@ impl CommandPool {
     fn new(queue_family_index: u32, queue_type: QueueType, ctx: &'static Context) -> Self {
         let pool = ctx.device.create_command_pool(queue_family_index);
 
-        return CommandPool {
+        CommandPool {
             ctx,
             pool,
             buffers: Vec::new(),
             in_flight: 0,
             last_signal: None,
-            queue_type: queue_type,
-        };
+            queue_type,
+        }
     }
 
     fn reset(&mut self) {
@@ -154,14 +154,14 @@ impl CommandPool {
             };
         }
 
-        return buf;
+        buf
     }
 
     fn is_free(&self) -> bool {
-        return match self.last_signal {
+        match self.last_signal {
             None => self.in_flight == 0,
             Some(c) => self.ctx.poll(c),
-        };
+        }
     }
 }
 
@@ -209,7 +209,7 @@ impl CommandPoolRing {
         let idx = self.pools.len() - 1;
         let buf = self.pools[idx].allocate_buffer();
 
-        return (idx, buf);
+        (idx, buf)
     }
 
     // just gets called by vkSubmit

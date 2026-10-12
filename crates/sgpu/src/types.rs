@@ -12,12 +12,12 @@ pub struct Extent3D {
 }
 
 impl Extent3D {
-    pub(crate) fn to_vk(&self) -> ash::vk::Extent3D {
-        return ash::vk::Extent3D {
+    pub(crate) fn to_vk(self) -> ash::vk::Extent3D {
+        ash::vk::Extent3D {
             width: self.width,
             height: self.height,
             depth: self.depth,
-        };
+        }
     }
 }
 
@@ -29,11 +29,11 @@ pub struct Extent2D {
 }
 
 impl Extent2D {
-    pub(crate) fn to_vk(&self) -> ash::vk::Extent2D {
-        return ash::vk::Extent2D {
+    pub(crate) fn to_vk(self) -> ash::vk::Extent2D {
+        ash::vk::Extent2D {
             width: self.width,
             height: self.height,
-        };
+        }
     }
 }
 
@@ -46,12 +46,12 @@ pub struct Offset3D {
 }
 
 impl Offset3D {
-    pub(crate) fn to_vk(&self) -> ash::vk::Offset3D {
-        return ash::vk::Offset3D {
+    pub(crate) fn to_vk(self) -> ash::vk::Offset3D {
+        ash::vk::Offset3D {
             x: self.x,
             y: self.y,
             z: self.z,
-        };
+        }
     }
 }
 
@@ -63,11 +63,11 @@ pub struct Offset2D {
 }
 
 impl Offset2D {
-    pub(crate) fn to_vk(&self) -> ash::vk::Offset2D {
-        return ash::vk::Offset2D {
+    pub(crate) fn to_vk(self) -> ash::vk::Offset2D {
+        ash::vk::Offset2D {
             x: self.x,
             y: self.y,
-        };
+        }
     }
 }
 
@@ -85,7 +85,7 @@ pub enum MemoryType {
 }
 
 impl MemoryType {
-    pub(crate) const fn to_vk(&self) -> MemoryLocation {
+    pub(crate) const fn to_vk(self) -> MemoryLocation {
         match self {
             Self::DeviceLocal => MemoryLocation::GpuOnly,
             Self::PreferHost => MemoryLocation::CpuToGpu,
@@ -131,7 +131,7 @@ pub enum ImageType {
 }
 
 impl ImageType {
-    pub(crate) fn to_vk(&self) -> vk::ImageType {
+    pub(crate) fn to_vk(self) -> vk::ImageType {
         match self {
             Self::Type1D => vk::ImageType::TYPE_1D,
             Self::Type2D => vk::ImageType::TYPE_2D,
@@ -202,8 +202,8 @@ pub enum Format {
 }
 
 impl Format {
-    pub(crate) const fn to_vk(&self) -> vk::Format {
-        return match self {
+    pub(crate) const fn to_vk(self) -> vk::Format {
+        match self {
             Self::Rgba8Unorm => vk::Format::R8G8B8A8_UNORM,
             Self::Bgra8Unorm => vk::Format::B8G8R8A8_UNORM,
             Self::Rgb565Unorm => vk::Format::R5G6B5_UNORM_PACK16,
@@ -220,7 +220,7 @@ impl Format {
             Self::D16Unorm => vk::Format::D16_UNORM,
             Self::BC1RgbaUnorm => vk::Format::BC1_RGBA_UNORM_BLOCK,
             Self::BC7Unorm => vk::Format::BC7_UNORM_BLOCK,
-        };
+        }
     }
 }
 
@@ -237,8 +237,8 @@ pub enum SampleCount {
 }
 
 impl SampleCount {
-    pub(crate) const fn to_vk(&self) -> vk::SampleCountFlags {
-        return match self {
+    pub(crate) const fn to_vk(self) -> vk::SampleCountFlags {
+        match self {
             Self::Type1 => vk::SampleCountFlags::TYPE_1,
             Self::Type2 => vk::SampleCountFlags::TYPE_2,
             Self::Type4 => vk::SampleCountFlags::TYPE_4,
@@ -246,7 +246,7 @@ impl SampleCount {
             Self::Type16 => vk::SampleCountFlags::TYPE_16,
             Self::Type32 => vk::SampleCountFlags::TYPE_32,
             Self::Type64 => vk::SampleCountFlags::TYPE_64,
-        };
+        }
     }
 }
 
@@ -266,7 +266,7 @@ pub struct ImageDescription {
 
 impl Default for ImageDescription {
     fn default() -> Self {
-        return Self {
+        Self {
             create_flags: ImageCreateFlags::NONE,
             usage: ImageUsage::SAMPLED,
             format: Format::Rgba16Float,
@@ -281,7 +281,7 @@ impl Default for ImageDescription {
             array_layers: 1,
             samples: SampleCount::Type1,
             default_view: ImageViewDescription::default(),
-        };
+        }
     }
 }
 
@@ -297,35 +297,35 @@ pub struct ImageSubresources {
 }
 
 impl ImageSubresources {
-    pub(crate) const fn to_vk_subresource_layers(&self) -> vk::ImageSubresourceLayers {
-        return vk::ImageSubresourceLayers {
+    pub(crate) const fn to_vk_subresource_layers(self) -> vk::ImageSubresourceLayers {
+        vk::ImageSubresourceLayers {
             aspect_mask: self.aspect.to_vk(),
             mip_level: self.mip_level,
             base_array_layer: self.base_array_layer,
             layer_count: self.layer_count,
-        };
+        }
     }
 
-    pub(crate) const fn to_vk_subresource_range(&self) -> vk::ImageSubresourceRange {
-        return vk::ImageSubresourceRange {
+    pub(crate) const fn to_vk_subresource_range(self) -> vk::ImageSubresourceRange {
+        vk::ImageSubresourceRange {
             aspect_mask: self.aspect.to_vk(),
             base_mip_level: self.mip_level,
             level_count: self.level_count,
             base_array_layer: self.base_array_layer,
             layer_count: self.layer_count,
-        };
+        }
     }
 }
 
 impl Default for ImageSubresources {
     fn default() -> Self {
-        return ImageSubresources {
+        ImageSubresources {
             aspect: ImageAspect::COLOR,
             mip_level: 0,
             level_count: 1,
             base_array_layer: 0,
             layer_count: 1,
-        };
+        }
     }
 }
 
@@ -342,7 +342,7 @@ pub enum ImageViewType {
 }
 
 impl ImageViewType {
-    pub(crate) const fn to_vk(&self) -> vk::ImageViewType {
+    pub(crate) const fn to_vk(self) -> vk::ImageViewType {
         match self {
             Self::Type1D => vk::ImageViewType::TYPE_1D,
             Self::Type2D => vk::ImageViewType::TYPE_2D,
@@ -377,10 +377,10 @@ pub struct ImageViewDescription {
 
 impl Default for ImageViewDescription {
     fn default() -> Self {
-        return Self {
+        Self {
             view_type: ImageViewType::Type2D,
             subresources: ImageSubresources::default(),
-        };
+        }
     }
 }
 
@@ -392,7 +392,7 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn descriptor_index(&self) -> u32 { return self.id.data().as_ffi() as u32; }
+    pub fn descriptor_index(&self) -> u32 { self.id.data().as_ffi() as u32 }
 }
 
 /// A Vulkan image, used to create and use image views
@@ -406,10 +406,10 @@ pub struct Image {
 impl Image {
     pub fn create_view(&self, image_view_desc: &ImageViewDescription) -> ImageView {
         let ctx = crate::CONTEXT.get().unwrap();
-        return ctx.create_image_view(image_view_desc, *self);
+        ctx.create_image_view(image_view_desc, *self)
     }
 
-    pub fn default_view(&self) -> ImageView { return self.default_view; }
+    pub fn default_view(&self) -> ImageView { self.default_view }
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -430,7 +430,7 @@ pub struct BufferImageCopyRegion {
 }
 
 impl BufferImageCopyRegion {
-    pub(crate) fn to_vk(&self) -> vk::BufferImageCopy {
+    pub(crate) fn to_vk(self) -> vk::BufferImageCopy {
         vk::BufferImageCopy {
             buffer_offset: self.buffer_offset,
             buffer_row_length: self.buffer_row_length,
@@ -438,7 +438,6 @@ impl BufferImageCopyRegion {
             image_subresource: self.image_subresource.to_vk_subresource_layers(),
             image_offset: self.image_offset.to_vk(),
             image_extent: self.image_extent.to_vk(),
-            ..Default::default()
         }
     }
 }
@@ -454,7 +453,7 @@ pub struct ImageCopyRegion {
 }
 
 impl ImageCopyRegion {
-    pub(crate) fn to_vk(&self) -> vk::ImageCopy {
+    pub(crate) fn to_vk(self) -> vk::ImageCopy {
         vk::ImageCopy {
             src_subresource: self.src_subresource.to_vk_subresource_layers(),
             src_offset: self.src_offset.to_vk(),
@@ -475,7 +474,7 @@ pub struct BlitRegion {
 }
 
 impl BlitRegion {
-    pub(crate) fn to_vk(&self) -> vk::ImageBlit {
+    pub(crate) fn to_vk(self) -> vk::ImageBlit {
         vk::ImageBlit {
             src_subresource: self.src_subresource.to_vk_subresource_layers(),
             src_offsets: [
@@ -498,7 +497,7 @@ pub enum Filter {
 }
 
 impl Filter {
-    pub(crate) fn to_vk(&self) -> vk::Filter {
+    pub(crate) fn to_vk(self) -> vk::Filter {
         match self {
             Self::Nearest => vk::Filter::NEAREST,
             Self::Linear => vk::Filter::LINEAR,
@@ -519,9 +518,9 @@ impl Counter {
 
     pub(crate) fn encode(queue: QueueType, value: u64) -> Counter {
         let q = (queue as u64) << 56;
-        return Counter {
+        Counter {
             data: q | (value & Self::VALUE_MASK),
-        };
+        }
     }
 
     pub(crate) fn decode(&self) -> (QueueType, u64) {

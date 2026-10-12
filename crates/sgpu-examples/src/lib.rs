@@ -17,13 +17,17 @@ pub struct Runner<A: Application> {
 
 impl<A: Application> Runner<A> {
     pub fn new() -> Runner<A> {
-        return Runner {
+        Runner {
             app: None,
             window: None,
             start_time: Instant::now(),
             last_frame: Instant::now(),
-        };
+        }
     }
+}
+
+impl<A: Application> Default for Runner<A> {
+    fn default() -> Self { Self::new() }
 }
 
 impl<A: Application> ApplicationHandler for Runner<A> {

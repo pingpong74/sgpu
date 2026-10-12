@@ -29,19 +29,19 @@ pub struct ReadOnlyBuffer<'a, T> {
 
 impl<T> ReadOnlyBuffer<'_, T> {
     #[inline]
-    pub unsafe fn get(handle: u32) -> Self {
+    pub fn get(handle: u32) -> Self {
         let buffer = unsafe { bindless_buffers().index(handle as usize) };
         ReadOnlyBuffer {
-            data: &**buffer,
+            data: buffer,
             _marker: PhantomData,
         }
     }
 
     #[inline]
-    pub unsafe fn load(&self, byte_offset: u32) -> T { unsafe { ByteAddressableBuffer::from_slice(self.data).load(byte_offset) } }
+    pub fn load(&self, byte_offset: u32) -> T { unsafe { ByteAddressableBuffer::from_slice(self.data).load(byte_offset) } }
 
     #[inline]
-    pub unsafe fn load_indexed(&self, index: u32) -> T { unsafe { self.load(index * core::mem::size_of::<T>() as u32) } }
+    pub fn load_indexed(&self, index: u32) -> T { self.load(index * core::mem::size_of::<T>() as u32) }
 }
 
 pub struct ReadWriteBuffer<'a, T> {
@@ -51,27 +51,27 @@ pub struct ReadWriteBuffer<'a, T> {
 
 impl<T> ReadWriteBuffer<'_, T> {
     #[inline]
-    pub unsafe fn get(handle: u32) -> Self {
+    pub fn get(handle: u32) -> Self {
         let buffer = unsafe { bindless_buffers_mut().index_mut(handle as usize) };
         ReadWriteBuffer {
-            data: &mut **buffer,
+            data: buffer,
             _marker: PhantomData,
         }
     }
     #[inline]
-    pub unsafe fn load(&self, byte_offset: u32) -> T { unsafe { ByteAddressableBuffer::from_slice(self.data).load(byte_offset) } }
+    pub fn load(&self, byte_offset: u32) -> T { unsafe { ByteAddressableBuffer::from_slice(self.data).load(byte_offset) } }
 
     #[inline]
-    pub unsafe fn load_indexed(&self, index: u32) -> T { unsafe { self.load(index * core::mem::size_of::<T>() as u32) } }
+    pub fn load_indexed(&self, index: u32) -> T { self.load(index * core::mem::size_of::<T>() as u32) }
 
     #[inline]
-    pub unsafe fn store(&mut self, value: T, byte_offset: u32) {
+    pub fn store(&mut self, value: T, byte_offset: u32) {
         let mut buffer = ByteAddressableBuffer::from_mut_slice(&mut *self.data);
         unsafe { buffer.store(byte_offset, value) }
     }
 
     #[inline]
-    pub unsafe fn store_indexed(&mut self, value: T, index: u32) { unsafe { self.store(value, index * core::mem::size_of::<T>() as u32) } }
+    pub fn store_indexed(&mut self, value: T, index: u32) { self.store(value, index * core::mem::size_of::<T>() as u32) }
 }
 
 impl ReadWriteBuffer<'_, u32> {
@@ -88,7 +88,7 @@ impl ReadWriteBuffer<'_, u32> {
     pub fn interlocked_compare_exchange(&mut self, byte_offset: u32, compare: u32, value: u32) -> u32 { unsafe { arch::atomic_compare_exchange::<u32, ATOMIC_SCOPE, ATOMIC_SEMANTICS, ATOMIC_SEMANTICS>(self.word(byte_offset), value, compare) } }
 
     fn word(&mut self, byte_offset: u32) -> &mut u32 {
-        assert!(byte_offset % 4 == 0, "atomic byte offset must be 4-byte aligned");
+        assert!(byte_offset.is_multiple_of(4), "atomic byte offset must be 4-byte aligned");
         &mut self.data[(byte_offset / 4) as usize]
     }
 }
@@ -107,12 +107,13 @@ impl ReadWriteBuffer<'_, i32> {
     pub fn interlocked_compare_exchange(&mut self, byte_offset: u32, compare: i32, value: i32) -> i32 { unsafe { arch::atomic_compare_exchange::<i32, ATOMIC_SCOPE, ATOMIC_SEMANTICS, ATOMIC_SEMANTICS>(self.word(byte_offset), value, compare) } }
 
     fn word(&mut self, byte_offset: u32) -> &mut i32 {
-        assert!(byte_offset % 4 == 0, "atomic byte offset must be 4-byte aligned");
+        assert!(byte_offset.is_multiple_of(4), "atomic byte offset must be 4-byte aligned");
         unsafe { &mut *(&mut self.data[(byte_offset / 4) as usize] as *mut u32).cast() }
     }
 }
 
-#[inline(never)]
+// # Safety:
+// Usage of raw spriv
 pub unsafe fn bindless_buffers() -> &'static BindlessBuffers {
     #[cfg(target_arch = "spirv")]
     {
@@ -135,7 +136,8 @@ pub unsafe fn bindless_buffers() -> &'static BindlessBuffers {
     unimplemented!()
 }
 
-#[inline(never)]
+// # Safety:
+// Usage of raw spriv
 pub unsafe fn bindless_buffers_mut() -> &'static mut BindlessBuffers {
     #[cfg(target_arch = "spirv")]
     {
@@ -161,7 +163,7 @@ macro_rules! image_getters {
     ($binding:expr; $(fn $name:ident($ty:ty)),+ $(,)?) => {
         $(
             #[inline(never)]
-            pub unsafe fn $name(handle: u32) -> &'static $ty {
+            pub fn $name(handle: u32) -> &'static $ty {
                 #[cfg(target_arch = "spirv")]
                 {
                     let mut slot = core::mem::MaybeUninit::<&RuntimeArray<$ty>>::uninit();

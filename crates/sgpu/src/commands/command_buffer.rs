@@ -76,7 +76,7 @@ pub enum LoadOp {
 
 impl LoadOp {
     #[inline]
-    pub(crate) const fn to_vk(&self) -> vk::AttachmentLoadOp {
+    pub(crate) const fn to_vk(self) -> vk::AttachmentLoadOp {
         match self {
             Self::Load => vk::AttachmentLoadOp::LOAD,
             Self::Clear => vk::AttachmentLoadOp::CLEAR,
@@ -94,7 +94,7 @@ pub enum StoreOp {
 
 impl StoreOp {
     #[inline]
-    pub(crate) const fn to_vk(&self) -> vk::AttachmentStoreOp {
+    pub(crate) const fn to_vk(self) -> vk::AttachmentStoreOp {
         match self {
             Self::Store => vk::AttachmentStoreOp::STORE,
             Self::DontCare => vk::AttachmentStoreOp::DONT_CARE,
@@ -114,7 +114,7 @@ pub enum ResolveMode {
 
 impl ResolveMode {
     #[inline]
-    pub(crate) const fn to_vk(&self) -> vk::ResolveModeFlags {
+    pub(crate) const fn to_vk(self) -> vk::ResolveModeFlags {
         match self {
             Self::None => vk::ResolveModeFlags::NONE,
             Self::SampleZero => vk::ResolveModeFlags::SAMPLE_ZERO,
@@ -138,26 +138,24 @@ pub enum ClearValue {
 
 impl ClearValue {
     #[inline]
-    pub(crate) const fn to_vk(&self) -> vk::ClearValue {
+    pub(crate) const fn to_vk(self) -> vk::ClearValue {
         match self {
             Self::ColorFloat(v) => vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: *v,
-                },
+                color: vk::ClearColorValue { float32: v },
             },
             Self::ColorInt(v) => vk::ClearValue {
-                color: vk::ClearColorValue { int32: *v },
+                color: vk::ClearColorValue { int32: v },
             },
             Self::ColorUint(v) => vk::ClearValue {
-                color: vk::ClearColorValue { uint32: *v },
+                color: vk::ClearColorValue { uint32: v },
             },
             Self::DepthStencil {
                 depth,
                 stencil,
             } => vk::ClearValue {
                 depth_stencil: vk::ClearDepthStencilValue {
-                    depth: *depth,
-                    stencil: *stencil,
+                    depth,
+                    stencil,
                 },
             },
         }
@@ -380,7 +378,7 @@ impl CommandBuffer {
     pub fn update_buffer<T: Copy>(&mut self, buffer: &Buffer, offset: u64, data: &[T]) {
         let ctx = self.ctx;
         let ptr = data.as_ptr() as *const u8;
-        let len = data.len() * std::mem::size_of::<T>();
+        let len = std::mem::size_of_val(data);
         unsafe {
             ctx.device.handle.cmd_update_buffer(self.handle, buffer.raw, offset, std::slice::from_raw_parts(ptr, len));
         }

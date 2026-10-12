@@ -13,14 +13,20 @@ impl QueueFamilyIndices {
     pub(crate) fn get_familes(&self) -> SmallVec<[u32; 3]> {
         let mut families = smallvec![];
 
-        self.graphics.map(|f| families.push(f));
-        self.compute.map(|f| families.push(f));
-        self.transfer.map(|f| families.push(f));
+        if let Some(f) = self.graphics {
+            families.push(f)
+        }
+        if let Some(f) = self.compute {
+            families.push(f)
+        }
+        if let Some(f) = self.transfer {
+            families.push(f)
+        }
 
-        return families;
+        families
     }
 
-    fn is_complete(&self) -> bool { return self.graphics.is_some() && self.compute.is_some() && self.transfer.is_some(); }
+    fn is_complete(&self) -> bool { self.graphics.is_some() && self.compute.is_some() && self.transfer.is_some() }
 }
 
 pub(crate) struct PhysicalDevice {
@@ -74,7 +80,7 @@ impl PhysicalDevice {
             }
         }
 
-        return best_device.map(|(_, dev)| dev);
+        best_device.map(|(_, dev)| dev)
     }
 
     fn get_queue_families(instance: &Instance, physical_device: ash::vk::PhysicalDevice) -> Option<QueueFamilyIndices> {
@@ -103,17 +109,17 @@ impl PhysicalDevice {
             }
         }
 
-        return Some(QueueFamilyIndices {
+        Some(QueueFamilyIndices {
             graphics,
             compute,
             transfer,
-        });
+        })
     }
 
     fn check_device_extension_support(instance: &Instance, device: ash::vk::PhysicalDevice, required_extensions: &[*const i8]) -> bool {
         let available_extensions = unsafe { instance.handle.enumerate_device_extension_properties(device).expect("Failed to enumerate device extensions") };
 
-        return required_extensions.iter().all(|&required_ptr| {
+        required_extensions.iter().all(|&required_ptr| {
             let required_str = unsafe { std::ffi::CStr::from_ptr(required_ptr) };
 
             available_extensions.iter().any(|avail| {
@@ -121,6 +127,6 @@ impl PhysicalDevice {
 
                 avail_str == required_str
             })
-        });
+        })
     }
 }

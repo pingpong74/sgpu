@@ -34,14 +34,14 @@ pub(crate) struct Context {
 impl Context {
     pub(crate) fn new(init_info: &SgpuInititizationInfo) -> Context {
         let instance = Instance::new(init_info);
-        let device = Device::new(&init_info, &instance);
+        let device = Device::new(init_info, &instance);
         let queues = device.get_queues();
         let bindless_set = BindlessDescriptorSet::new(&device);
 
-        return Context {
-            instance: instance,
-            device: device,
-            queues: queues,
+        Context {
+            instance,
+            device,
+            queues,
             bindless_descriptor_set: bindless_set,
 
             buffers: RwLock::new(Default::default()),
@@ -49,7 +49,7 @@ impl Context {
             image_views: RwLock::new(Default::default()),
 
             thread_cmd_pool_pool: RwLock::new(HashMap::new()),
-        };
+        }
     }
 
     pub(crate) fn create_buffer(&self, desc: &BufferDescription) -> Buffer {
@@ -61,10 +61,10 @@ impl Context {
             self.bindless_descriptor_set.write_buffer(&self.device, buffer, id.data().as_ffi() as u32);
         }
 
-        return Buffer {
+        Buffer {
             raw: buffer,
-            id: id,
-        };
+            id,
+        }
     }
 
     pub fn as_slice<T>(&self, buffer: &Buffer) -> &[T] {
@@ -77,6 +77,9 @@ impl Context {
         unsafe { std::slice::from_raw_parts(mapped_ptr as *const T, len) }
     }
 
+    // SAFETY-adjacent: returns a slice over persistently mapped buffer memory.
+    // The caller must not destroy the buffer while the slice is alive.
+    #[allow(clippy::mut_from_ref)]
     pub fn as_mut_slice<T>(&self, buffer: &Buffer) -> &mut [T] {
         assert!(std::mem::size_of::<T>() > 0, "size must be > 0");
 
@@ -111,10 +114,10 @@ impl Context {
         return Image {
             raw: raw_image,
             default_view: ImageView {
-                raw: raw,
+                raw,
                 id: self.image_views.write().unwrap().insert(view),
             },
-            id: id,
+            id,
         };
     }
 
@@ -137,28 +140,28 @@ impl Context {
         self.device.destroy_image(inner);
     }
 
-    pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline { return self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec); }
+    pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline { self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec) }
 
-    pub(crate) fn create_compute_pipeline(&self, module: &ShaderModule) -> ComputePipeline { return self.device.create_compute_pipeline(&self.bindless_descriptor_set, module); }
+    pub(crate) fn create_compute_pipeline(&self, module: &ShaderModule) -> ComputePipeline { self.device.create_compute_pipeline(&self.bindless_descriptor_set, module) }
 
     pub(crate) fn create_query_pool(&self, query_count: u32) -> QueryPool {
-        return QueryPool {
+        QueryPool {
             raw: self.device.create_query_pool(query_count),
             query_count,
-        };
+        }
     }
 
     pub(crate) fn poll(&self, counter: Counter) -> bool {
         let (queue_type, value) = counter.decode();
 
-        return self.queues.get_queue(queue_type).poll(&self.device, value);
+        self.queues.get_queue(queue_type).poll(&self.device, value)
     }
 
     pub(crate) fn wait_idle(&self) { self.device.wait_idle(); }
 
     pub(crate) fn wait(&self, counter: Counter) {
         let (queue_type, value) = counter.decode();
-        self.device.wait_queue(&self.queues.get_queue(queue_type), value);
+        self.device.wait_queue(self.queues.get_queue(queue_type), value);
     }
 
     pub(crate) fn record(&'static self, queue_type: QueueType) -> CommandBuffer {
@@ -182,7 +185,7 @@ impl Context {
             }
         }
 
-        return counter;
+        counter
     }
 }
 

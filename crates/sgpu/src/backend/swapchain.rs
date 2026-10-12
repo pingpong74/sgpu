@@ -29,13 +29,13 @@ impl Surface {
             let present_modes = self.loader.get_physical_device_surface_present_modes(physical_device, self.handle).ok()?;
 
             if formats.is_empty() || present_modes.is_empty() {
-                return None;
+                None
             } else {
-                return Some(SwapchainSupport {
+                Some(SwapchainSupport {
                     capabilities,
                     formats,
                     present_modes,
-                });
+                })
             }
         }
     }
@@ -76,10 +76,10 @@ impl Surface {
             _ => panic!("Unsupported platform or mismatched window/display handle"),
         };
 
-        return Surface {
+        Surface {
             handle: surface_handle,
             loader: ash::khr::surface::Instance::new(&instance.entry, &instance.handle),
-        };
+        }
     }
 
     pub(crate) fn cleanup(&self) {
@@ -204,7 +204,7 @@ impl InnerSwapchain {
 
         let fences = unsafe { (0..actual_image_count).map(|_| ctx.device.handle.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap()).collect() };
 
-        return InnerSwapchain {
+        InnerSwapchain {
             ctx,
             handle: swapchain,
             swapchain_loader,
@@ -215,7 +215,7 @@ impl InnerSwapchain {
             fences,
             actual_image_count,
             frame_timeline: 0,
-        };
+        }
     }
 
     pub(crate) fn acquire_image(&mut self) -> AcquiredImage {
@@ -231,13 +231,13 @@ impl InnerSwapchain {
 
         let (index, _) = unsafe { self.swapchain_loader.acquire_next_image2(&acquire_info).expect("Failed to acquire image") };
 
-        return AcquiredImage {
+        AcquiredImage {
             image: self.images[index as usize],
             image_index: index as usize,
             acquire_semaphore: self.acquire_semaphores[slot],
             present_semaphore: self.present_semaphores[index as usize],
             slot,
-        };
+        }
     }
 
     pub(crate) fn present(&mut self, acquired_image: &AcquiredImage, counter: Counter) {

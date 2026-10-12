@@ -1,7 +1,6 @@
 use crate::api::SgpuInititizationInfo;
 
 use ash::vk;
-use raw_window_handle;
 
 pub(crate) struct Instance {
     pub(crate) entry: ash::Entry,
@@ -48,10 +47,8 @@ impl Instance {
                         println!("Warning: Xlib surface extension not supported by Vulkan driver/layer");
                     }
                 }
-                raw_window_handle::RawWindowHandle::AppKit(_) => {
-                    if !push_if_supported(ash::ext::metal_surface::NAME) {
-                        println!("Warning: Metal surface extension not supported by Vulkan driver/layer");
-                    }
+                raw_window_handle::RawWindowHandle::AppKit(_) if !push_if_supported(ash::ext::metal_surface::NAME) => {
+                    println!("Warning: Metal surface extension not supported by Vulkan driver/layer");
                 }
                 _ => {}
             }
@@ -101,22 +98,22 @@ impl Instance {
             debug_loader = Some(debug_utils_loader);
         }
 
-        return Instance {
-            entry: entry,
+        Instance {
+            entry,
             handle: instance,
-            debug_messenger: debug_messenger,
-            debug_loader: debug_loader,
-        };
+            debug_messenger,
+            debug_loader,
+        }
     }
 
     pub(crate) fn cleanup(&mut self) {
         unsafe {
-            if !self.debug_messenger.is_none() {
+            if let Some(debug_messenger) = self.debug_messenger {
                 if self.debug_loader.is_none() {
                     panic!("Created debug utils but not debug loader")
                 }
 
-                self.debug_loader.as_mut().unwrap().destroy_debug_utils_messenger(self.debug_messenger.unwrap(), None);
+                self.debug_loader.as_mut().unwrap().destroy_debug_utils_messenger(debug_messenger, None);
             }
 
             self.handle.destroy_instance(None);

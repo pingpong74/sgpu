@@ -164,7 +164,7 @@ mod tests {
 
         // After draining, resubmit — pools should be reclaimed, not growing forever
         for buf in &buffers {
-            let data = buffer_as_slice::<u32>(&buf);
+            let data = buffer_as_slice::<u32>(buf);
             assert!(data.iter().all(|&x| x == 0xABCD));
         }
 

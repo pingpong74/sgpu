@@ -169,14 +169,14 @@ impl Application for App {
         let depth_image = create_depth_image(size.width, size.height);
         let timestamp_pool = create_query_pool(2);
 
-        return App {
+        App {
             swapchain,
             vertex_buffer,
             depth_image,
             pipeline,
             timestamp_pool,
             frame: 0,
-        };
+        }
     }
 
     fn render(&mut self, window: &winit::window::Window, _dt: Duration, time: Duration) {
@@ -266,7 +266,7 @@ impl Application for App {
         self.swapchain.present(&swapchain_img, render_finish);
 
         self.frame += 1;
-        if self.frame % 60 == 0 {
+        if self.frame.is_multiple_of(60) {
             wait(render_finish);
             let timestamps = self.timestamp_pool.get_timestamps_ns(0, 2);
             println!("GPU frame: {:.3} ms", (timestamps[1] - timestamps[0]) / 1_000_000.0);

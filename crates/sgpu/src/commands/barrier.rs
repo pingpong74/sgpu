@@ -558,7 +558,7 @@ fn build_image_barrier(ctx: &Context, barrier: &ImageBarrier) -> vk::ImageMemory
         dst_stage = vk::PipelineStageFlags2::BOTTOM_OF_PIPE;
     }
 
-    return vk::ImageMemoryBarrier2::default()
+    vk::ImageMemoryBarrier2::default()
         .src_stage_mask(src_stage)
         .src_access_mask(src_access)
         .dst_stage_mask(dst_stage)
@@ -568,5 +568,5 @@ fn build_image_barrier(ctx: &Context, barrier: &ImageBarrier) -> vk::ImageMemory
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(inner_view.image)
-        .subresource_range(inner_view.subresources);
+        .subresource_range(inner_view.subresources)
 }

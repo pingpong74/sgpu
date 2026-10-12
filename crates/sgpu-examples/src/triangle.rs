@@ -89,11 +89,11 @@ impl Application for App {
             _pad1: 0.0,
         };
 
-        return App {
-            swapchain: swapchain,
+        App {
+            swapchain,
             veretx_buffer: buffer,
             pipeline: raster_pipe,
-        };
+        }
     }
 
     fn render(&mut self, window: &winit::window::Window, dt: Duration, time: Duration) {
