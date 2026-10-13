@@ -10,6 +10,4 @@ raw-window-handle.workspace = true
 slotmap.workspace = true
 bitflags.workspace = true
 smallvec.workspace = true
-
-[dev-dependencies]
 sgpu-shaders.workspace = true

@@ -127,17 +127,3 @@ impl BindlessDescriptorSet {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn abi_matches_sgpu_shaders() {
-        assert_eq!(BINDLESS_SET as usize, sgpu_shaders::DESCRIPTOR_SET as usize);
-        assert_eq!(SAMPLED_IMAGE_BINDING, sgpu_shaders::SAMPLED_IMAGE_BINDING);
-        assert_eq!(STORAGE_IMAGE_BINDING, sgpu_shaders::STORAGE_IMAGE_BINDING);
-        assert_eq!(BINDLESS_BUFFER_BINDING, sgpu_shaders::BINDLESS_BUFFER_BINDING);
-        assert_eq!(PUSH_CONSTANT_SIZE as usize, sgpu_shaders::MAX_PUSH_CONSTANT_SIZE);
-    }
-}

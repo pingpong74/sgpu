@@ -148,7 +148,7 @@ impl Application for App {
             },
             |r| {
                 r.bind_rasterization_pipeline(&self.pipeline);
-                r.push_constants(&self.veretx_buffer.descriptor_index());
+                r.push_constants(&self.veretx_buffer.descriptor_index::<Read>());
                 r.set_viewport(size.width, size.height);
                 r.set_scissor(size.width, size.height);
                 r.draw(3, 1, 0, 0);

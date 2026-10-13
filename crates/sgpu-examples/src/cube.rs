@@ -16,7 +16,7 @@ struct Vertex {
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct PushConstants {
-    vertex_buffer: u32,
+    vertex_buffer: BufferId<Read>,
     mvp: [f32; 16],
 }
 

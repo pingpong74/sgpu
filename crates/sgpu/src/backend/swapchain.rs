@@ -3,7 +3,7 @@ use gpu_allocator::vulkan::Allocation;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
-    Counter, Image, ImageView, ImageViewDescription,
+    Counter, Image, ImageUsage, ImageView, ImageViewDescription,
     backend::{context::Context, instance::Instance, resources::InnerImage},
     swapchain::{AcquiredImage, SwapchainDescription},
 };
@@ -173,9 +173,9 @@ impl InnerSwapchain {
             .iter()
             .map(|img| InnerImage {
                 image: *img,
-                mem_requirements: vk::MemoryRequirements::default(),
                 format: swapchain_description.format.to_vk(),
                 allocation: Allocation::default(),
+                usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
             })
             .collect();
 

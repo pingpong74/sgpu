@@ -77,7 +77,7 @@ impl Context {
         unsafe { std::slice::from_raw_parts(mapped_ptr as *const T, len) }
     }
 
-    // SAFETY-adjacent: returns a slice over persistently mapped buffer memory.
+    // SAFETY: returns a slice over persistently mapped buffer memory.
     // The caller must not destroy the buffer while the slice is alive.
     #[allow(clippy::mut_from_ref)]
     pub fn as_mut_slice<T>(&self, buffer: &Buffer) -> &mut [T] {
@@ -99,35 +99,37 @@ impl Context {
     pub(crate) fn create_image(&self, desc: &ImageDescription) -> Image {
         let inner_image = self.device.create_image(desc);
         let raw_image = inner_image.image;
-        let view = self.device.create_image_view(&inner_image, &desc.default_view);
-        let raw = view.view;
         let id = self.images.write().unwrap().insert(inner_image);
 
-        if desc.usage.contains(ImageUsage::SAMPLED) {
-            self.bindless_descriptor_set.write_sampled_image(&self.device, view.view, id.data().as_ffi() as u32);
-        }
-
-        if desc.usage.contains(ImageUsage::STORAGE) {
-            self.bindless_descriptor_set.write_storage_image(&self.device, view.view, id.data().as_ffi() as u32);
-        }
-
-        return Image {
+        let mut image = Image {
             raw: raw_image,
-            default_view: ImageView {
-                raw,
-                id: self.image_views.write().unwrap().insert(view),
-            },
+            default_view: ImageView::default(),
             id,
         };
+        image.default_view = self.create_image_view(&desc.default_view, image);
+        image
     }
 
     pub(crate) fn create_image_view(&self, desc: &ImageViewDescription, image: Image) -> ImageView {
-        let inner_view = self.device.create_image_view(self.images.read().unwrap().get(image.id).expect("Invalid image Id"), desc);
-
-        return ImageView {
-            raw: inner_view.view,
-            id: self.image_views.write().unwrap().insert(inner_view),
+        let (inner_view, usage) = {
+            let images = self.images.read().unwrap();
+            let inner_image = images.get(image.id).expect("Invalid image Id");
+            (self.device.create_image_view(inner_image, desc), inner_image.usage)
         };
+
+        let raw = inner_view.view;
+
+        let id = self.image_views.write().unwrap().insert(inner_view);
+
+        if usage.contains(ImageUsage::SAMPLED) {
+            self.bindless_descriptor_set.write_sampled_image(&self.device, raw, id.data().as_ffi() as u32);
+        }
+
+        if usage.contains(ImageUsage::STORAGE) {
+            self.bindless_descriptor_set.write_storage_image(&self.device, raw, id.data().as_ffi() as u32);
+        }
+
+        return ImageView { raw, id };
     }
 
     pub(crate) fn destroy_image(&self, image: Image) {

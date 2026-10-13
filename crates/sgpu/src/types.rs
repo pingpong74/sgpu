@@ -4,6 +4,8 @@ use slotmap::{DefaultKey, Key};
 
 use crate::commands::QueueType;
 
+pub use sgpu_shaders::{BufferId, Read, SampledImageId, StorageImageId, Usage, Write};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Extent3D {
     pub width: u32,
@@ -392,10 +394,9 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn descriptor_index(&self) -> u32 { self.id.data().as_ffi() as u32 }
+    pub fn descriptor_index<U: Usage>(&self) -> BufferId<U> { BufferId::new(self.id.data().as_ffi() as u32) }
 }
 
-/// A Vulkan image, used to create and use image views
 #[derive(Clone, Copy, Default)]
 pub struct Image {
     pub(crate) raw: vk::Image,
@@ -416,6 +417,12 @@ impl Image {
 pub struct ImageView {
     pub(crate) raw: vk::ImageView,
     pub(crate) id: DefaultKey,
+}
+
+impl ImageView {
+    pub fn sampled_id(&self) -> SampledImageId { SampledImageId::new(self.id.data().as_ffi() as u32) }
+
+    pub fn storage_id<U: Usage>(&self) -> StorageImageId<U> { StorageImageId::new(self.id.data().as_ffi() as u32) }
 }
 
 /// A region for buffer-to-image or image-to-buffer copy operations.

@@ -296,7 +296,8 @@ impl Device {
             self.handle.bind_buffer_memory(buffer, allocation.memory(), allocation.offset()).expect("Failed to bind buffer memory");
         }
 
-        let buffer_address = unsafe { self.handle.get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer)) };
+        // for future usage
+        let _buffer_address = unsafe { self.handle.get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer)) };
 
         let mapper_ptr = match desc.memory_type {
             MemoryType::HostVisible | MemoryType::PreferHost => Some(allocation.mapped_ptr().unwrap().as_ptr() as *mut u8),
@@ -306,7 +307,6 @@ impl Device {
         InnerBuffer {
             buffer,
             size: desc.size,
-            device_address: buffer_address,
             mapped_ptr: mapper_ptr,
             allocation,
         }
@@ -360,9 +360,9 @@ impl Device {
 
         InnerImage {
             image,
-            mem_requirements: memory_requirements,
             allocation,
             format: desc.format.to_vk(),
+            usage: desc.usage,
         }
     }
 

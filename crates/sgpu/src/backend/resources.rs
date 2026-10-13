@@ -1,11 +1,11 @@
 use ash::vk;
 use gpu_allocator::vulkan::Allocation;
 
-#[allow(unused)]
+use crate::ImageUsage;
+
 pub(crate) struct InnerBuffer {
     pub(crate) buffer: vk::Buffer,
     pub(crate) size: u64,
-    pub(crate) device_address: u64,
     pub(crate) mapped_ptr: Option<*mut u8>,
     pub(crate) allocation: Allocation,
 }
@@ -17,10 +17,9 @@ pub(crate) struct InnerImageView {
 }
 
 // need to handle views some how tho
-#[allow(unused)]
 pub(crate) struct InnerImage {
     pub(crate) image: ash::vk::Image,
-    pub(crate) mem_requirements: vk::MemoryRequirements,
     pub(crate) allocation: Allocation,
     pub(crate) format: vk::Format,
+    pub(crate) usage: ImageUsage,
 }

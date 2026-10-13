@@ -22,6 +22,69 @@ pub type BindlessBuffers = RuntimeArray<TypedBuffer<[u32]>>;
 const ATOMIC_SCOPE: u32 = Scope::Device as u32;
 const ATOMIC_SEMANTICS: u32 = Semantics::NONE.bits();
 
+pub trait Usage {
+    const WRITEABLE: bool;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Read;
+
+impl Usage for Read {
+    const WRITEABLE: bool = false;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Write;
+
+impl Usage for Write {
+    const WRITEABLE: bool = true;
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BufferId<U: Usage> {
+    id: u32,
+    _u: PhantomData<U>,
+}
+
+impl<U: Usage> BufferId<U> {
+    #[inline]
+    pub const fn new(id: u32) -> Self {
+        Self {
+            id,
+            _u: PhantomData,
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StorageImageId<U: Usage> {
+    id: u32,
+    _u: PhantomData<U>,
+}
+
+impl<U: Usage> StorageImageId<U> {
+    #[inline]
+    pub const fn new(id: u32) -> Self {
+        Self {
+            id,
+            _u: PhantomData,
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SampledImageId {
+    id: u32,
+}
+
+impl SampledImageId {
+    #[inline]
+    pub const fn new(id: u32) -> Self { Self { id } }
+}
+
 pub struct ReadOnlyBuffer<'a, T> {
     data: &'a [u32],
     _marker: PhantomData<T>,
@@ -29,8 +92,8 @@ pub struct ReadOnlyBuffer<'a, T> {
 
 impl<T> ReadOnlyBuffer<'_, T> {
     #[inline]
-    pub fn get(handle: u32) -> Self {
-        let buffer = unsafe { bindless_buffers().index(handle as usize) };
+    pub fn get(id: BufferId<Read>) -> Self {
+        let buffer = unsafe { bindless_buffers().index(id.id as usize) };
         ReadOnlyBuffer {
             data: buffer,
             _marker: PhantomData,
@@ -51,8 +114,8 @@ pub struct ReadWriteBuffer<'a, T> {
 
 impl<T> ReadWriteBuffer<'_, T> {
     #[inline]
-    pub fn get(handle: u32) -> Self {
-        let buffer = unsafe { bindless_buffers_mut().index_mut(handle as usize) };
+    pub fn get(id: BufferId<Write>) -> Self {
+        let buffer = unsafe { bindless_buffers_mut().index_mut(id.id as usize) };
         ReadWriteBuffer {
             data: buffer,
             _marker: PhantomData,
@@ -160,39 +223,53 @@ pub unsafe fn bindless_buffers_mut() -> &'static mut BindlessBuffers {
 }
 
 macro_rules! image_getters {
-    ($binding:expr; $(fn $name:ident($ty:ty)),+ $(,)?) => {
+    ($binding:expr, $id:ty, non_writable; $(fn $name:ident($ty:ty)),+ $(,)?) => {
         $(
             #[inline(never)]
-            pub fn $name(handle: u32) -> &'static $ty {
-                #[cfg(target_arch = "spirv")]
-                {
-                    let mut slot = core::mem::MaybeUninit::<&RuntimeArray<$ty>>::uninit();
-                    unsafe {
-                        core::arch::asm!(
-                            "%var = OpVariable typeof*{slot} UniformConstant",
-                            "OpDecorate %var DescriptorSet {descriptor_set}",
-                            "OpDecorate %var Binding {binding}",
-                            "OpStore {slot} %var",
-                            descriptor_set = const DESCRIPTOR_SET,
-                            binding = const $binding,
-                            slot = in(reg) slot.as_mut_ptr(),
-                        );
-                    }
-                    let images = unsafe { slot.assume_init() };
-                    unsafe { images.index(handle as usize) }
-                }
-                #[cfg(not(target_arch = "spirv"))]
-                {
-                    let _ = handle;
-                    unimplemented!()
-                }
+            pub fn $name(id: $id) -> &'static $ty {
+                image_getters!(@body id, $id, $ty, $binding, "OpDecorate %var NonWritable")
             }
         )+
+    };
+    ($binding:expr, $id:ty; $(fn $name:ident($ty:ty)),+ $(,)?) => {
+        $(
+            #[inline(never)]
+            pub fn $name(id: $id) -> &'static $ty {
+                image_getters!(@body id, $id, $ty, $binding,)
+            }
+        )+
+    };
+    (@body $pid:ident, $id:ty, $ty:ty, $binding:expr, $($decor:literal)?) => {
+        {
+            #[cfg(target_arch = "spirv")]
+            {
+                let mut slot = core::mem::MaybeUninit::<&RuntimeArray<$ty>>::uninit();
+                unsafe {
+                    core::arch::asm!(
+                        "%var = OpVariable typeof*{slot} UniformConstant",
+                        "OpDecorate %var DescriptorSet {descriptor_set}",
+                        "OpDecorate %var Binding {binding}",
+                        $($decor,)?
+                        "OpStore {slot} %var",
+                        descriptor_set = const DESCRIPTOR_SET,
+                        binding = const $binding,
+                        slot = in(reg) slot.as_mut_ptr(),
+                    );
+                }
+                let images = unsafe { slot.assume_init() };
+                unsafe { images.index($pid.id as usize) }
+            }
+            #[cfg(not(target_arch = "spirv"))]
+            {
+                let _ = $pid;
+                unimplemented!()
+            }
+        }
     };
 }
 
 image_getters! {
-    SAMPLED_IMAGE_BINDING;
+    SAMPLED_IMAGE_BINDING, SampledImageId;
     fn get_sampled_1d_f(Image1d),
     fn get_sampled_2d_f(Image2d),
     fn get_sampled_3d_f(Image3d),
@@ -206,7 +283,20 @@ image_getters! {
 }
 
 image_getters! {
-    STORAGE_IMAGE_BINDING;
+    STORAGE_IMAGE_BINDING, StorageImageId<Read>, non_writable;
+    fn get_ro_1d_f(StorageImage1d),
+    fn get_ro_2d_f(StorageImage2d),
+    fn get_ro_3d_f(StorageImage3d),
+    fn get_ro_1d_u(StorageImage1dU),
+    fn get_ro_2d_u(StorageImage2dU),
+    fn get_ro_3d_u(StorageImage3dU),
+    fn get_ro_1d_i(StorageImage1dI),
+    fn get_ro_2d_i(StorageImage2dI),
+    fn get_ro_3d_i(StorageImage3dI),
+}
+
+image_getters! {
+    STORAGE_IMAGE_BINDING, StorageImageId<Write>;
     fn get_rw_1d_f(StorageImage1d),
     fn get_rw_2d_f(StorageImage2d),
     fn get_rw_3d_f(StorageImage3d),

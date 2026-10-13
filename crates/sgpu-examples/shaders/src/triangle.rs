@@ -1,5 +1,7 @@
 use sgpu_shaders::{
+    BufferId,
     ReadOnlyBuffer,
+    Read,
     glam::{Vec3, Vec4, vec4},
     spirv,
 };
@@ -7,7 +9,7 @@ use sgpu_shaders::{
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct PushConstants {
-    pub vertex_buffer: u32,
+    pub vertex_buffer: BufferId<Read>,
 }
 
 #[repr(C)]
