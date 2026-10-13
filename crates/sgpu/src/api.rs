@@ -57,6 +57,10 @@ pub fn create_image(image_desc: &ImageDescription) -> Image { crate::CONTEXT.get
 
 pub fn destroy_image(image: Image) { crate::CONTEXT.get().expect("Not initialized").destroy_image(image); }
 
+pub fn create_sampler(sampler_desc: &SamplerDescription) -> Sampler { crate::CONTEXT.get().expect("Not initialized").create_sampler(sampler_desc) }
+
+pub fn destroy_sampler(sampler: Sampler) { crate::CONTEXT.get().expect("Not initialized").destroy_sampler(sampler); }
+
 pub fn create_swapchain<W: HasDisplayHandle + HasWindowHandle>(window: &W, swapchain_description: &SwapchainDescription) -> Swapchain {
     let ctx = crate::CONTEXT.get().expect("Not initialized");
     let surface = Surface::create_surface(&ctx.instance, window);

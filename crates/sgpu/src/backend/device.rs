@@ -1,7 +1,7 @@
 use std::{mem::ManuallyDrop, sync::Mutex};
 
 use crate::{
-    BufferDescription, ComputePipeline, ImageAspect, ImageDescription, ImageViewDescription, MemoryType,
+    BufferDescription, ComputePipeline, ImageAspect, ImageDescription, ImageViewDescription, MemoryType, SamplerDescription,
     api::SgpuInititizationInfo,
     backend::{
         commands::{CommandPoolRing, Queue, Queues, ThreadCommandPools},
@@ -407,6 +407,26 @@ impl Device {
         unsafe {
             self.handle.destroy_image(image.image, None);
             self.allocator.lock().unwrap().free(image.allocation).expect("Failed to free buffer");
+        }
+    }
+
+    pub(crate) fn create_sampler(&self, desc: &SamplerDescription) -> vk::Sampler {
+        let create_info = vk::SamplerCreateInfo::default()
+            .mag_filter(desc.filter.to_vk())
+            .min_filter(desc.filter.to_vk())
+            .mipmap_mode(desc.mipmap_mode.to_vk_mipmap())
+            .address_mode_u(desc.address_mode_u.to_vk())
+            .address_mode_v(desc.address_mode_v.to_vk())
+            .address_mode_w(desc.address_mode_w.to_vk())
+            .min_lod(desc.lod_min)
+            .max_lod(desc.lod_max);
+
+        unsafe { self.handle.create_sampler(&create_info, None).expect("Failed to create Sampler") }
+    }
+
+    pub(crate) fn destroy_sampler(&self, sampler: vk::Sampler) {
+        unsafe {
+            self.handle.destroy_sampler(sampler, None);
         }
     }
 

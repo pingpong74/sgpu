@@ -150,3 +150,12 @@ public ReadWriteBuffer<T> get_rw_buffer<T>(uint handle) {
   buf.handle = handle;
   return buf;
 }
+
+// Samplers :
+
+[[vk::binding(3, 0)]]
+SamplerState _samplers[];
+
+public SamplerState get_sampler(uint handle) {
+  return _samplers[NonUniformResourceIndex(handle)];
+}

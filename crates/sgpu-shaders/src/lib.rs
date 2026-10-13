@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use spirv_std::arch;
 use spirv_std::byte_addressable_buffer::ByteAddressableBuffer;
 use spirv_std::memory::{Scope, Semantics};
-use spirv_std::{RuntimeArray, TypedBuffer};
+use spirv_std::{RuntimeArray, Sampler, TypedBuffer};
 
 pub use spirv_std::image::{Cubemap, Image1d, Image1dI, Image1dU, Image2d, Image2dI, Image2dU, Image3d, Image3dI, Image3dU, StorageImage1d, StorageImage1dI, StorageImage1dU, StorageImage2d, StorageImage2dI, StorageImage2dU, StorageImage3d, StorageImage3dI, StorageImage3dU};
 pub use spirv_std::{ByteAddressableBuffer as ByteAddressBuffer, glam, spirv};
@@ -15,9 +15,11 @@ pub const DESCRIPTOR_SET: u32 = 0;
 pub const SAMPLED_IMAGE_BINDING: u32 = 0;
 pub const STORAGE_IMAGE_BINDING: u32 = 1;
 pub const BINDLESS_BUFFER_BINDING: u32 = 2;
+pub const SAMPLER_BINDING: u32 = 3;
 pub const MAX_PUSH_CONSTANT_SIZE: usize = 256;
 
 pub type BindlessBuffers = RuntimeArray<TypedBuffer<[u32]>>;
+pub type BindlessSamplers = RuntimeArray<Sampler>;
 
 const ATOMIC_SCOPE: u32 = Scope::Device as u32;
 const ATOMIC_SEMANTICS: u32 = Semantics::NONE.bits();
@@ -83,6 +85,43 @@ pub struct SampledImageId {
 impl SampledImageId {
     #[inline]
     pub const fn new(id: u32) -> Self { Self { id } }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SamplerId {
+    id: u32,
+}
+
+impl SamplerId {
+    #[inline]
+    pub const fn new(id: u32) -> Self { Self { id } }
+
+    #[inline(never)]
+    pub fn get_sampler(id: SamplerId) -> &'static Sampler {
+        #[cfg(target_arch = "spirv")]
+        {
+            let mut slot = core::mem::MaybeUninit::<&RuntimeArray<Sampler>>::uninit();
+            unsafe {
+                core::arch::asm!(
+                    "%var = OpVariable typeof*{slot} UniformConstant",
+                    "OpDecorate %var DescriptorSet {descriptor_set}",
+                    "OpDecorate %var Binding {binding}",
+                    "OpStore {slot} %var",
+                    descriptor_set = const DESCRIPTOR_SET,
+                    binding = const SAMPLER_BINDING,
+                    slot = in(reg) slot.as_mut_ptr(),
+                );
+            }
+            let samplers = unsafe { slot.assume_init() };
+            unsafe { samplers.index(id.id as usize) }
+        }
+        #[cfg(not(target_arch = "spirv"))]
+        {
+            let _ = id;
+            unimplemented!()
+        }
+    }
 }
 
 pub struct ReadOnlyBuffer<'a, T> {

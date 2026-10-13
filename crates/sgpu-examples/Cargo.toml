@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 glam.workspace = true
+image.workspace = true
 sgpu.workspace = true
 winit.workspace = true
 

@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, BufferDescription, BufferUsage, ComputePipeline, Counter, Image, ImageDescription, ImageUsage, ImageView, ImageViewDescription,
+    Buffer, BufferDescription, BufferUsage, ComputePipeline, Counter, Image, ImageDescription, ImageUsage, ImageView, ImageViewDescription, Sampler, SamplerDescription,
     api::SgpuInititizationInfo,
     backend::{
         commands::*,
@@ -13,6 +13,7 @@ use crate::{
 };
 
 use super::instance::Instance;
+use ash::vk;
 use slotmap::{DefaultKey, Key, SlotMap};
 
 use std::{collections::HashMap, sync::RwLock, thread::ThreadId};
@@ -27,6 +28,7 @@ pub(crate) struct Context {
     pub(crate) buffers: RwLock<SlotMap<DefaultKey, InnerBuffer>>,
     pub(crate) images: RwLock<SlotMap<DefaultKey, InnerImage>>,
     pub(crate) image_views: RwLock<SlotMap<DefaultKey, InnerImageView>>,
+    pub(crate) samplers: RwLock<SlotMap<DefaultKey, vk::Sampler>>,
 
     pub(crate) thread_cmd_pool_pool: RwLock<HashMap<ThreadId, ThreadCommandPools>>,
 }
@@ -47,6 +49,7 @@ impl Context {
             buffers: RwLock::new(Default::default()),
             images: RwLock::new(Default::default()),
             image_views: RwLock::new(Default::default()),
+            samplers: RwLock::new(Default::default()),
 
             thread_cmd_pool_pool: RwLock::new(HashMap::new()),
         }
@@ -132,6 +135,19 @@ impl Context {
         return ImageView { raw, id };
     }
 
+    pub(crate) fn create_sampler(&self, desc: &SamplerDescription) -> Sampler {
+        let sampler = self.device.create_sampler(desc);
+        let id = self.samplers.write().unwrap().insert(sampler);
+        self.bindless_descriptor_set.write_sampler(&self.device, sampler, id.data().as_ffi() as u32);
+
+        Sampler { raw: sampler, id }
+    }
+
+    pub(crate) fn destroy_sampler(&self, sampler: Sampler) {
+        self.samplers.write().unwrap().remove(sampler.id).expect("Tried to destroy Sampler twice");
+        self.device.destroy_sampler(sampler.raw);
+    }
+
     pub(crate) fn destroy_image(&self, image: Image) {
         let inner = self.images.write().unwrap().remove(image.id).expect("Tried to destroy Image twice");
 
@@ -196,6 +212,7 @@ impl Drop for Context {
         self.image_views.write().unwrap().drain().for_each(|(_, view)| self.device.destroy_image_view(view));
         self.buffers.write().unwrap().drain().for_each(|(_, buffer)| self.device.destroy_buffer(buffer));
         self.images.write().unwrap().drain().for_each(|(_, img)| self.device.destroy_image(img));
+        self.samplers.write().unwrap().drain().for_each(|(_, sampler)| self.device.destroy_sampler(sampler));
 
         self.bindless_descriptor_set.cleanup(&self.device);
         self.device.cleanup();

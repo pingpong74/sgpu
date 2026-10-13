@@ -14,6 +14,7 @@ sgpu-shaders = { path = "crates/sgpu-shaders" }
 ash = { version = "0.38", features = ["linked"] }
 glam = "0.33"
 gpu-allocator = "0.28"
+image = "0.25"
 raw-window-handle = "0.6"
 slotmap = "1.0"
 bitflags = "2"

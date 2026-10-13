@@ -4,7 +4,7 @@ use slotmap::{DefaultKey, Key};
 
 use crate::commands::QueueType;
 
-pub use sgpu_shaders::{BufferId, Read, SampledImageId, StorageImageId, Usage, Write};
+pub use sgpu_shaders::{BufferId, Read, SampledImageId, SamplerId, StorageImageId, Usage, Write};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Extent3D {
@@ -386,6 +386,72 @@ impl Default for ImageViewDescription {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterMode {
+    Nearest,
+    Linear,
+}
+
+impl FilterMode {
+    pub(crate) const fn to_vk(self) -> vk::Filter {
+        match self {
+            Self::Nearest => vk::Filter::NEAREST,
+            Self::Linear => vk::Filter::LINEAR,
+        }
+    }
+
+    pub(crate) const fn to_vk_mipmap(self) -> vk::SamplerMipmapMode {
+        match self {
+            Self::Nearest => vk::SamplerMipmapMode::NEAREST,
+            Self::Linear => vk::SamplerMipmapMode::LINEAR,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SamplerAddressMode {
+    Repeat,
+    MirroredRepeat,
+    ClampToEdge,
+    ClampToBorder,
+}
+
+impl SamplerAddressMode {
+    pub(crate) const fn to_vk(self) -> vk::SamplerAddressMode {
+        match self {
+            Self::Repeat => vk::SamplerAddressMode::REPEAT,
+            Self::MirroredRepeat => vk::SamplerAddressMode::MIRRORED_REPEAT,
+            Self::ClampToEdge => vk::SamplerAddressMode::CLAMP_TO_EDGE,
+            Self::ClampToBorder => vk::SamplerAddressMode::CLAMP_TO_BORDER,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SamplerDescription {
+    pub filter: FilterMode,
+    pub mipmap_mode: FilterMode,
+    pub address_mode_u: SamplerAddressMode,
+    pub address_mode_v: SamplerAddressMode,
+    pub address_mode_w: SamplerAddressMode,
+    pub lod_min: f32,
+    pub lod_max: f32,
+}
+
+impl Default for SamplerDescription {
+    fn default() -> Self {
+        Self {
+            filter: FilterMode::Linear,
+            mipmap_mode: FilterMode::Linear,
+            address_mode_u: SamplerAddressMode::Repeat,
+            address_mode_v: SamplerAddressMode::Repeat,
+            address_mode_w: SamplerAddressMode::Repeat,
+            lod_min: 0.0,
+            lod_max: 16.0,
+        }
+    }
+}
+
 /// A vulkan Buffer
 #[derive(Clone, Copy, Default)]
 pub struct Buffer {
@@ -395,6 +461,17 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn descriptor_index<U: Usage>(&self) -> BufferId<U> { BufferId::new(self.id.data().as_ffi() as u32) }
+}
+
+/// A vulkan Sampler, bound into the bindless sampler array on creation
+#[derive(Clone, Copy, Default)]
+pub struct Sampler {
+    pub(crate) raw: vk::Sampler,
+    pub(crate) id: DefaultKey,
+}
+
+impl Sampler {
+    pub fn descriptor_index(&self) -> SamplerId { SamplerId::new(self.id.data().as_ffi() as u32) }
 }
 
 #[derive(Clone, Copy, Default)]

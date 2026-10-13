@@ -5,11 +5,13 @@ pub const BINDLESS_SET: u32 = 0;
 pub const SAMPLED_IMAGE_BINDING: u32 = 0;
 pub const STORAGE_IMAGE_BINDING: u32 = 1;
 pub const BINDLESS_BUFFER_BINDING: u32 = 2;
+pub const SAMPLER_BINDING: u32 = 3;
 pub const PUSH_CONSTANT_SIZE: u32 = 256;
 
 pub const BINDLESS_MAX_SAMPLERS: u32 = 16384;
 pub const BINDLESS_MAX_STORAGE: u32 = 16384;
 pub const BINDLESS_MAX_BUFFERS: u32 = 65536;
+pub const BINDLESS_MAX_SAMPLER_OBJECTS: u32 = 16384;
 
 pub(crate) struct BindlessDescriptorSet {
     pub(crate) layout: vk::DescriptorSetLayout,
@@ -24,6 +26,7 @@ impl BindlessDescriptorSet {
             vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND,
             vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND,
             vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND,
+            vk::DescriptorBindingFlags::PARTIALLY_BOUND | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND,
         ];
 
         let mut binding_flags = vk::DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&flags);
@@ -32,6 +35,7 @@ impl BindlessDescriptorSet {
             vk::DescriptorSetLayoutBinding::default().binding(SAMPLED_IMAGE_BINDING).descriptor_type(vk::DescriptorType::SAMPLED_IMAGE).descriptor_count(BINDLESS_MAX_SAMPLERS).stage_flags(vk::ShaderStageFlags::ALL),
             vk::DescriptorSetLayoutBinding::default().binding(STORAGE_IMAGE_BINDING).descriptor_type(vk::DescriptorType::STORAGE_IMAGE).descriptor_count(BINDLESS_MAX_STORAGE).stage_flags(vk::ShaderStageFlags::ALL),
             vk::DescriptorSetLayoutBinding::default().binding(BINDLESS_BUFFER_BINDING).descriptor_type(vk::DescriptorType::STORAGE_BUFFER).descriptor_count(BINDLESS_MAX_BUFFERS).stage_flags(vk::ShaderStageFlags::ALL),
+            vk::DescriptorSetLayoutBinding::default().binding(SAMPLER_BINDING).descriptor_type(vk::DescriptorType::SAMPLER).descriptor_count(BINDLESS_MAX_SAMPLER_OBJECTS).stage_flags(vk::ShaderStageFlags::ALL),
         ];
 
         let layout = unsafe { device.handle.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings).flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL).push_next(&mut binding_flags), None).expect("bindless layout creation failed") };
@@ -48,6 +52,10 @@ impl BindlessDescriptorSet {
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: BINDLESS_MAX_BUFFERS,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::SAMPLER,
+                descriptor_count: BINDLESS_MAX_SAMPLER_OBJECTS,
             },
         ];
 
@@ -81,6 +89,20 @@ impl BindlessDescriptorSet {
         ];
 
         let write_info = [vk::WriteDescriptorSet::default().buffer_info(&buffer_info).dst_set(self.set).dst_binding(BINDLESS_BUFFER_BINDING).dst_array_element(index).descriptor_count(1).descriptor_type(vk::DescriptorType::STORAGE_BUFFER)];
+
+        unsafe {
+            device.handle.update_descriptor_sets(&write_info, &[]);
+        }
+    }
+
+    pub(crate) fn write_sampler(&self, device: &Device, sampler: vk::Sampler, index: u32) {
+        let sampler_info = [vk::DescriptorImageInfo {
+            sampler,
+            image_view: vk::ImageView::null(),
+            image_layout: vk::ImageLayout::UNDEFINED,
+        }];
+
+        let write_info = [vk::WriteDescriptorSet::default().image_info(&sampler_info).dst_set(self.set).dst_binding(SAMPLER_BINDING).dst_array_element(index).descriptor_count(1).descriptor_type(vk::DescriptorType::SAMPLER)];
 
         unsafe {
             device.handle.update_descriptor_sets(&write_info, &[]);

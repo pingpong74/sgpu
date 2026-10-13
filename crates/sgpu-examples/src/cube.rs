@@ -8,102 +8,20 @@ const SHADERS_SPV: &[u8] = include_bytes!(env!("SHADERS_SPV"));
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
 struct PushConstants {
-    vertex_buffer: BufferId<Read>,
+    texture: SampledImageId,
+    sampler: SamplerId,
     mvp: [f32; 16],
 }
 
 struct App {
     swapchain: Swapchain,
-    vertex_buffer: Buffer,
     depth_image: Image,
+    texture: Image,
+    sampler: Sampler,
     pipeline: RasterizationPipeline,
     timestamp_pool: QueryPool,
     frame: u64,
-}
-
-fn cube_vertices() -> [Vertex; 36] {
-    let h = 0.5;
-    let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-        (
-            [0.85, 0.2, 0.2],
-            [
-                [h, -h, -h],
-                [h, h, -h],
-                [h, -h, h],
-                [h, h, h],
-            ],
-        ),
-        (
-            [0.2, 0.4, 0.85],
-            [
-                [-h, -h, h],
-                [-h, h, h],
-                [-h, -h, -h],
-                [-h, h, -h],
-            ],
-        ),
-        (
-            [0.2, 0.8, 0.3],
-            [
-                [-h, h, -h],
-                [-h, h, h],
-                [h, h, -h],
-                [h, h, h],
-            ],
-        ),
-        (
-            [0.85, 0.75, 0.2],
-            [
-                [-h, -h, h],
-                [-h, -h, -h],
-                [h, -h, h],
-                [h, -h, -h],
-            ],
-        ),
-        (
-            [0.7, 0.3, 0.85],
-            [
-                [-h, -h, h],
-                [h, -h, h],
-                [-h, h, h],
-                [h, h, h],
-            ],
-        ),
-        (
-            [0.2, 0.75, 0.8],
-            [
-                [h, -h, -h],
-                [-h, -h, -h],
-                [h, h, -h],
-                [-h, h, -h],
-            ],
-        ),
-    ];
-
-    let mut vertices = [Vertex {
-        position: [0.0; 3],
-        color: [0.0; 3],
-    }; 36];
-    let order = [
-        0usize, 1, 2, 2, 1, 3,
-    ];
-    for (face_index, (color, corners)) in faces.iter().enumerate() {
-        for (i, corner) in order.iter().enumerate() {
-            vertices[face_index * 6 + i] = Vertex {
-                position: corners[*corner],
-                color: *color,
-            };
-        }
-    }
-    vertices
 }
 
 fn create_depth_image(width: u32, height: u32) -> Image {
@@ -118,6 +36,67 @@ fn create_depth_image(width: u32, height: u32) -> Image {
         memory_type: MemoryType::DeviceLocal,
         ..Default::default()
     })
+}
+
+const MOSS_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/moss_block.png"));
+
+fn create_moss_texture() -> Image {
+    let decoded = image::load_from_memory(MOSS_PNG).expect("Failed to decode moss_block.png").to_rgba8();
+    let (width, height) = decoded.dimensions();
+
+    let staging = create_buffer(&BufferDescription {
+        usage: BufferUsage::TRANSFER_SRC,
+        size: decoded.len() as u64,
+        memory_type: MemoryType::HostVisible,
+    });
+    buffer_as_slice_mut::<u8>(&staging).copy_from_slice(&decoded);
+
+    let texture = create_image(&ImageDescription {
+        usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+        format: Format::Rgba8Unorm,
+        extent: Extent3D {
+            width,
+            height,
+            depth: 1,
+        },
+        memory_type: MemoryType::DeviceLocal,
+        ..Default::default()
+    });
+
+    let mut recorder = record(QueueType::Graphics);
+    recorder.image_barrier(&ImageBarrier {
+        view: texture.default_view(),
+        previous_accesses: &[AccessType::None],
+        next_accesses: &[AccessType::TransferWrite],
+        discard_contents: true,
+        ..Default::default()
+    });
+    recorder.copy_buffer_to_image(
+        &staging,
+        &texture,
+        &[
+            BufferImageCopyRegion {
+                image_extent: Extent3D {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                ..Default::default()
+            },
+        ],
+    );
+    recorder.image_barrier(&ImageBarrier {
+        view: texture.default_view(),
+        previous_accesses: &[AccessType::TransferWrite],
+        next_accesses: &[AccessType::FragmentShaderSampledRead],
+        discard_contents: false,
+        ..Default::default()
+    });
+    let upload_done = submit(&[recorder]);
+    wait(upload_done);
+
+    destroy_buffer(staging);
+    texture
 }
 
 impl Application for App {
@@ -159,20 +138,19 @@ impl Application for App {
             },
         });
 
-        let vertex_buffer = create_buffer(&BufferDescription {
-            usage: BufferUsage::STORAGE,
-            size: (std::mem::size_of::<Vertex>() * 36) as u64,
-            memory_type: MemoryType::HostVisible,
-        });
-        buffer_as_slice_mut::<Vertex>(&vertex_buffer).copy_from_slice(&cube_vertices());
-
         let depth_image = create_depth_image(size.width, size.height);
+        let texture = create_moss_texture();
+        let sampler = create_sampler(&SamplerDescription {
+            filter: FilterMode::Nearest,
+            ..Default::default()
+        });
         let timestamp_pool = create_query_pool(2);
 
         App {
             swapchain,
-            vertex_buffer,
             depth_image,
+            texture,
+            sampler,
             pipeline,
             timestamp_pool,
             frame: 0,
@@ -242,7 +220,8 @@ impl Application for App {
             |r| {
                 r.bind_rasterization_pipeline(&self.pipeline);
                 r.push_constants(&PushConstants {
-                    vertex_buffer: self.vertex_buffer.descriptor_index(),
+                    texture: self.texture.default_view().sampled_id(),
+                    sampler: self.sampler.descriptor_index(),
                     mvp: mvp.to_cols_array(),
                 });
                 r.set_viewport(size.width, size.height);
@@ -284,7 +263,8 @@ impl Drop for App {
     fn drop(&mut self) {
         wait_idle();
         destroy_image(self.depth_image);
-        destroy_buffer(self.vertex_buffer);
+        destroy_image(self.texture);
+        destroy_sampler(self.sampler);
     }
 }
 
