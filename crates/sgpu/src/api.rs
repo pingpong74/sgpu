@@ -13,6 +13,11 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 pub struct SgpuInititizationInfo {
     pub app_name: &'static str,
     pub enable_validation_layers: bool,
+    /// Enable the validation layer's **sync validation** (`VK_EXT_validation_features`):
+    /// reports missing/incorrect barriers, WAW/RAW hazards and layout mistakes
+    /// at submit time. Requires `enable_validation_layers`; silently skipped
+    /// when the extension isn't available.
+    pub enable_sync_validation: bool,
     pub window_handle: Option<raw_window_handle::RawWindowHandle>,
 
     pub mesh_shaders: bool,
@@ -34,6 +39,7 @@ impl Default for SgpuInititizationInfo {
         Self {
             app_name: "Default",
             enable_validation_layers: true,
+            enable_sync_validation: true,
             window_handle: None,
             mesh_shaders: false,
             atomic_float_operations: false,
@@ -55,11 +61,19 @@ pub fn destroy_buffer(buffer: Buffer) { crate::CONTEXT.get().expect("Not initial
 
 pub fn create_image(image_desc: &ImageDescription) -> Image { crate::CONTEXT.get().expect("Not initialized").create_image(image_desc) }
 
+// # Safety:
+// Creates images and buffers that all share a single memory allocation.
+pub unsafe fn create_aliased_resources(image_descs: &[ImageDescription], buffer_descs: &[BufferDescription]) -> (Vec<Image>, Vec<Buffer>) { crate::CONTEXT.get().expect("Not initialized").create_aliased_resources(image_descs, buffer_descs) }
+
 pub fn destroy_image(image: Image) { crate::CONTEXT.get().expect("Not initialized").destroy_image(image); }
 
 pub fn create_sampler(sampler_desc: &SamplerDescription) -> Sampler { crate::CONTEXT.get().expect("Not initialized").create_sampler(sampler_desc) }
 
 pub fn destroy_sampler(sampler: Sampler) { crate::CONTEXT.get().expect("Not initialized").destroy_sampler(sampler); }
+
+pub fn destroy_rasterization_pipeline(pipeline: RasterizationPipeline) { crate::CONTEXT.get().expect("Not initialized").destroy_pipeline(pipeline.handle); }
+
+pub fn destroy_compute_pipeline(pipeline: ComputePipeline) { crate::CONTEXT.get().expect("Not initialized").destroy_pipeline(pipeline.handle); }
 
 pub fn create_swapchain<W: HasDisplayHandle + HasWindowHandle>(window: &W, swapchain_description: &SwapchainDescription) -> Swapchain {
     let ctx = crate::CONTEXT.get().expect("Not initialized");

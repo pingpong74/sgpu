@@ -373,6 +373,12 @@ impl AccessType {
         }
     }
 
+    #[inline]
+    pub fn stage(self) -> crate::PipelineStage { crate::PipelineStage::from_bits_retain(self.info().stage.as_raw()) }
+
+    #[inline]
+    pub fn layout_differs(self, prev: AccessType) -> bool { self.info().image_layout != prev.info().image_layout }
+
     pub fn is_write(self) -> bool {
         matches!(
             self,

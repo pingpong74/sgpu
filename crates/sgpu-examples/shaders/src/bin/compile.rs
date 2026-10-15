@@ -22,6 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "triangle::triangle_fs",
         "cube::cube_vs",
         "cube::cube_fs",
+        "post::post_vs",
+        "post::post_fs",
     ] {
         assert!(entry_points.contains(&entry.to_string()), "missing {entry} entry point, got {entry_points:?}");
     }

@@ -8,6 +8,7 @@ publish = false
 glam.workspace = true
 image.workspace = true
 sgpu.workspace = true
+sgpu-taskgraph.workspace = true
 winit.workspace = true
 
 [[bin]]
@@ -17,3 +18,7 @@ path = "src/triangle.rs"
 [[bin]]
 name = "cube"
 path = "src/cube.rs"
+
+[[bin]]
+name = "renderer"
+path = "src/renderer.rs"

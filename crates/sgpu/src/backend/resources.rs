@@ -1,13 +1,20 @@
+use std::sync::Arc;
+
 use ash::vk;
 use gpu_allocator::vulkan::Allocation;
 
 use crate::ImageUsage;
 
+pub(crate) enum AllocationSource {
+    Dedicated(Allocation),
+    Aliased(Arc<Allocation>),
+}
+
 pub(crate) struct InnerBuffer {
     pub(crate) buffer: vk::Buffer,
     pub(crate) size: u64,
     pub(crate) mapped_ptr: Option<*mut u8>,
-    pub(crate) allocation: Allocation,
+    pub(crate) allocation: AllocationSource,
 }
 
 pub(crate) struct InnerImageView {
@@ -19,7 +26,7 @@ pub(crate) struct InnerImageView {
 // need to handle views some how tho
 pub(crate) struct InnerImage {
     pub(crate) image: ash::vk::Image,
-    pub(crate) allocation: Allocation,
+    pub(crate) allocation: AllocationSource,
     pub(crate) format: vk::Format,
     pub(crate) usage: ImageUsage,
 }

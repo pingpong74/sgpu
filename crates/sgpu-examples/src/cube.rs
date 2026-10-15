@@ -92,8 +92,8 @@ fn create_moss_texture() -> Image {
         discard_contents: false,
         ..Default::default()
     });
-    let upload_done = submit(&[recorder]);
-    wait(upload_done);
+
+    wait(submit(&[recorder]));
 
     destroy_buffer(staging);
     texture
@@ -108,7 +108,7 @@ impl Application for App {
             window,
             &SwapchainDescription {
                 format: Format::Rgba16Float,
-                frames_in_flight: 1,
+                frames_in_flight: 3,
                 width: size.width,
                 height: size.height,
             },
@@ -175,21 +175,25 @@ impl Application for App {
 
         recorder.wait_for_swapchain_image(&swapchain_img);
 
-        recorder.image_barrier(&ImageBarrier {
-            view: swapchain_img.image().default_view(),
-            previous_accesses: &[AccessType::None],
-            next_accesses: &[AccessType::ColorAttachmentWrite],
-            discard_contents: true,
-            ..Default::default()
-        });
-
-        recorder.image_barrier(&ImageBarrier {
-            view: self.depth_image.default_view(),
-            previous_accesses: &[AccessType::None],
-            next_accesses: &[AccessType::DepthStencilAttachmentWrite],
-            discard_contents: true,
-            ..Default::default()
-        });
+        recorder.barriers(
+            None,
+            &[
+                ImageBarrier {
+                    view: swapchain_img.image().default_view(),
+                    previous_accesses: &[AccessType::None],
+                    next_accesses: &[AccessType::ColorAttachmentWrite],
+                    discard_contents: true,
+                    ..Default::default()
+                },
+                ImageBarrier {
+                    view: self.depth_image.default_view(),
+                    previous_accesses: &[AccessType::None],
+                    next_accesses: &[AccessType::DepthStencilAttachmentWrite],
+                    discard_contents: true,
+                    ..Default::default()
+                },
+            ],
+        );
 
         recorder.begin_rendering(
             &RenderingBeginInfo {
@@ -248,7 +252,8 @@ impl Application for App {
         if self.frame.is_multiple_of(60) {
             wait(render_finish);
             let timestamps = self.timestamp_pool.get_timestamps_ns(0, 2);
-            println!("GPU frame: {:.3} ms", (timestamps[1] - timestamps[0]) / 1_000_000.0);
+            print!("\rGPU frame: {:.3} ms", (timestamps[1] - timestamps[0]) / 1_000_000.0);
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
     }
 
@@ -265,6 +270,7 @@ impl Drop for App {
         destroy_image(self.depth_image);
         destroy_image(self.texture);
         destroy_sampler(self.sampler);
+        destroy_rasterization_pipeline(self.pipeline);
     }
 }
 

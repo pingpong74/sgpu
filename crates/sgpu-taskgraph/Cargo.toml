@@ -1,0 +1,8 @@
+[package]
+name = "sgpu-taskgraph"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sgpu.workspace = true
+smallvec.workspace = true

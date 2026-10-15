@@ -267,26 +267,16 @@ pub struct RasterizationPipelineDescription<'a> {
     pub outputs: PipelineOutputs<'a>,
 }
 
+/// A vulkan RasterizationPipeline. Like every other sgpu handle it is `Copy` —
+/// destroy it explicitly with [`crate::destroy_rasterization_pipeline`].
+#[derive(Clone, Copy)]
 pub struct RasterizationPipeline {
     pub(crate) handle: vk::Pipeline,
 }
 
-impl Drop for RasterizationPipeline {
-    fn drop(&mut self) {
-        unsafe {
-            crate::CONTEXT.get().unwrap().device.handle.destroy_pipeline(self.handle, None);
-        }
-    }
-}
-
+/// A vulkan ComputePipeline. Like every other sgpu handle it is `Copy` —
+/// destroy it explicitly with [`crate::destroy_compute_pipeline`].
+#[derive(Clone, Copy)]
 pub struct ComputePipeline {
     pub(crate) handle: vk::Pipeline,
-}
-
-impl Drop for ComputePipeline {
-    fn drop(&mut self) {
-        unsafe {
-            crate::CONTEXT.get().unwrap().device.handle.destroy_pipeline(self.handle, None);
-        }
-    }
 }

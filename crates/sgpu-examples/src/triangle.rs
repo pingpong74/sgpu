@@ -114,7 +114,8 @@ impl Application for App {
 
         let swapchain_img = self.swapchain.acquire_image();
 
-        println!("{}", 1.0 / dt.as_secs_f32());
+        print!("\rFrame time: {}", dt.as_secs_f64() * 1000.0);
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
         let mut recorder = record(QueueType::Graphics);
 
@@ -169,6 +170,14 @@ impl Application for App {
     }
 
     fn resize(&mut self, width: u32, height: u32) { self.swapchain.resize(width, height); }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        wait_idle();
+        destroy_buffer(self.veretx_buffer);
+        destroy_rasterization_pipeline(self.pipeline);
+    }
 }
 
 fn main() { run::<App>(); }

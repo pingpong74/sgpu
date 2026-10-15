@@ -17,6 +17,10 @@ impl Instance {
         let supported_exts = unsafe { entry.enumerate_instance_extension_properties(None).unwrap() };
         let supported_names: Vec<&std::ffi::CStr> = supported_exts.iter().map(|e| unsafe { std::ffi::CStr::from_ptr(e.extension_name.as_ptr()) }).collect();
 
+        if sgpu_init_info.enable_validation_layers {
+            required_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
+        }
+
         let mut push_if_supported = |ext_name: &std::ffi::CStr| {
             if supported_names.contains(&ext_name) {
                 required_extensions.push(ext_name.as_ptr());
@@ -54,9 +58,17 @@ impl Instance {
             }
         }
 
-        if sgpu_init_info.enable_validation_layers {
-            required_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
-        }
+        const VALIDATION_LAYER: &std::ffi::CStr = c"VK_LAYER_KHRONOS_validation";
+        let layer_names = [VALIDATION_LAYER.as_ptr()];
+
+        // Whether the validation layer is actually present (and wanted).
+        let validation_layer_available = sgpu_init_info.enable_validation_layers
+            && unsafe { entry.enumerate_instance_layer_properties().map(|layers| layers.iter().any(|layer| std::ffi::CStr::from_ptr(layer.layer_name.as_ptr()) == VALIDATION_LAYER)).unwrap_or(false) };
+
+        // Sync validation (VK_EXT_validation_features) rides on top of the
+        // validation layer: it reports missing/incorrect barriers, WAW/RAW
+        // hazards and layout mistakes at submit time.
+        let enable_sync_validation = sgpu_init_info.enable_sync_validation && validation_layer_available && push_if_supported(ash::ext::validation_features::NAME);
 
         let app_info = vk::ApplicationInfo {
             api_version: vk::API_VERSION_1_3,
@@ -70,19 +82,21 @@ impl Instance {
             .message_type(vk::DebugUtilsMessageTypeFlagsEXT::GENERAL | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION)
             .pfn_user_callback(Some(Instance::vulkan_debug_callback));
 
-        const VALIDATION_LAYER: &std::ffi::CStr = c"VK_LAYER_KHRONOS_validation";
-        let layer_names = [VALIDATION_LAYER.as_ptr()];
+        let sync_validation_features = [vk::ValidationFeatureEnableEXT::SYNCHRONIZATION_VALIDATION];
+        let mut sync_validation_create_info = vk::ValidationFeaturesEXT::default().enabled_validation_features(&sync_validation_features);
+
+        if validation_layer_available {
+            create_info = create_info.enabled_layer_names(&layer_names);
+        } else if sgpu_init_info.enable_validation_layers {
+            eprintln!("Warning: VK_LAYER_KHRONOS_validation not available, validation layers disabled");
+        }
 
         if sgpu_init_info.enable_validation_layers {
             create_info = create_info.push_next(&mut debug_create_info);
+        }
 
-            let layer_available = unsafe { entry.enumerate_instance_layer_properties().map(|layers| layers.iter().any(|layer| std::ffi::CStr::from_ptr(layer.layer_name.as_ptr()) == VALIDATION_LAYER)).unwrap_or(false) };
-
-            if layer_available {
-                create_info = create_info.enabled_layer_names(&layer_names);
-            } else {
-                eprintln!("Warning: VK_LAYER_KHRONOS_validation not available, validation layers disabled");
-            }
+        if enable_sync_validation {
+            create_info = create_info.push_next(&mut sync_validation_create_info);
         }
 
         let instance = unsafe { entry.create_instance(&create_info, None).expect("Failed to create instance") };

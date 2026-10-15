@@ -10,6 +10,7 @@ edition = "2024"
 [workspace.dependencies]
 sgpu = { path = "crates/sgpu" }
 sgpu-shaders = { path = "crates/sgpu-shaders" }
+sgpu-taskgraph = { path = "crates/sgpu-taskgraph" }
 
 ash = { version = "0.38", features = ["linked"] }
 glam = "0.33"

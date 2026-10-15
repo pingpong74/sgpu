@@ -4,7 +4,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
     Counter, Image, ImageUsage, ImageView, ImageViewDescription,
-    backend::{context::Context, instance::Instance, resources::InnerImage},
+    backend::{context::Context, instance::Instance, resources::{AllocationSource, InnerImage}},
     swapchain::{AcquiredImage, SwapchainDescription},
 };
 
@@ -174,7 +174,7 @@ impl InnerSwapchain {
             .map(|img| InnerImage {
                 image: *img,
                 format: swapchain_description.format.to_vk(),
-                allocation: Allocation::default(),
+                allocation: AllocationSource::Dedicated(Allocation::default()),
                 usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
             })
             .collect();
