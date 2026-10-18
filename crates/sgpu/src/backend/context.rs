@@ -213,6 +213,12 @@ impl Context {
         self.device.destroy_image(inner);
     }
 
+    pub(crate) fn destroy_image_view(&self, image_view: ImageView) {
+        if let Some(inner) = self.image_views.write().unwrap().remove(image_view.id) {
+            self.device.destroy_image_view(inner);
+        }
+    }
+
     pub(crate) fn create_raster_pipeline(&self, dec: &RasterizationPipelineDescription) -> RasterizationPipeline { self.device.create_raster_pipeline(&self.bindless_descriptor_set, dec) }
 
     pub(crate) fn create_compute_pipeline(&self, module: &ShaderModule) -> ComputePipeline { self.device.create_compute_pipeline(&self.bindless_descriptor_set, module) }

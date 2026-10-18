@@ -10,6 +10,4 @@ pub use resource::{Id, PassBuffer, PassImage};
 // TODO:
 // Better ImageView handling
 // Frames in flight
-// Some better means to resize resources
-// Better indices
 // Aliasing (Transient resources)

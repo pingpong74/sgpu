@@ -474,7 +474,7 @@ impl Sampler {
     pub fn descriptor_index(&self) -> SamplerId { SamplerId::new(self.id.data().as_ffi() as u32) }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, PartialEq, Default)]
 pub struct Image {
     pub(crate) raw: vk::Image,
     pub(crate) default_view: ImageView,

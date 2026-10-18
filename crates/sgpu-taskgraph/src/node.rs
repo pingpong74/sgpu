@@ -1,7 +1,7 @@
-use sgpu::{AccessType, Buffer, BufferId, CommandBuffer, Image, ImageView, QueueType, SampledImageId, StorageImageId};
+use sgpu::{AccessType, Buffer, BufferId, CommandBuffer, Image, QueueType, SampledImageId, StorageImageId};
 
 use crate::access::{BufferAccess, ImageAccess, SampledImageAccess, StorageImageAccess};
-use crate::resource::{Id, PassBuffer, PassImage};
+use crate::resource::{Id, InnerImage, PassBuffer, PassImage};
 
 /// This represents a bit of GPU work
 pub trait Node<R, D> {
@@ -18,35 +18,37 @@ pub trait Node<R, D> {
 }
 
 /// Used to register the access's of resources
-pub struct NodeWriter {
-    pub(crate) image_count: usize,
-    pub(crate) buffer_count: usize,
-    pub(crate) images: Vec<(u32, AccessType)>,
-    pub(crate) buffers: Vec<(u32, AccessType)>,
+pub struct NodeWriter<'a> {
+    graph_id: u32,
+    images: &'a [InnerImage],
+    buffers: &'a [Buffer],
+    pub(crate) image_accesses: Vec<(u32, AccessType)>,
+    pub(crate) buffer_accesses: Vec<(u32, AccessType)>,
 }
 
-impl NodeWriter {
-    pub(crate) fn new(image_count: usize, buffer_count: usize) -> Self {
+impl<'a> NodeWriter<'a> {
+    pub(crate) fn new(graph_id: u32, images: &'a [InnerImage], buffers: &'a [Buffer]) -> Self {
         NodeWriter {
-            image_count,
-            buffer_count,
-            images: Vec::new(),
-            buffers: Vec::new(),
+            graph_id,
+            images,
+            buffers,
+            image_accesses: Vec::new(),
+            buffer_accesses: Vec::new(),
         }
     }
 
     /// Get Image with given Access
     pub fn image<A: ImageAccess>(&mut self, id: Id<Image>) -> PassImage<A> {
-        assert!((id.index as usize) < self.image_count, "image id {id:?} does not belong to this graph");
-        self.images.push((id.index, A::ACCESS));
-        PassImage::new(id.index)
+        let index = id.check(self.graph_id, self.images.len());
+        self.image_accesses.push((index, A::ACCESS));
+        PassImage::new(index)
     }
 
     /// Get Buffer with given Access
     pub fn buffer<A: BufferAccess>(&mut self, id: Id<Buffer>) -> PassBuffer<A> {
-        assert!((id.index as usize) < self.buffer_count, "buffer id {id:?} does not belong to this graph");
-        self.buffers.push((id.index, A::ACCESS));
-        PassBuffer::new(id.index)
+        let index = id.check(self.graph_id, self.buffers.len());
+        self.buffer_accesses.push((index, A::ACCESS));
+        PassBuffer::new(index)
     }
 }
 
@@ -54,7 +56,7 @@ impl NodeWriter {
 /// Used to get `sgpu::Image` and `sgpu::Buffer`
 pub struct ExecutionContext<'a> {
     pub(crate) cmd: &'a mut CommandBuffer,
-    pub(crate) images: &'a [Image],
+    pub(crate) images: &'a [InnerImage],
     pub(crate) buffers: &'a [Buffer],
 }
 
@@ -63,16 +65,13 @@ impl ExecutionContext<'_> {
     pub fn cmd(&mut self) -> &mut CommandBuffer { self.cmd }
 
     /// Get `sgpu::Image`
-    pub fn image<A: ImageAccess>(&self, token: PassImage<A>) -> Image { self.images[token.index as usize] }
-
-    /// Get `sgpu::ImageView`
-    pub fn view<A: ImageAccess>(&self, token: PassImage<A>) -> ImageView { self.images[token.index as usize].default_view() }
+    pub fn image<A: ImageAccess>(&self, token: PassImage<A>) -> Image { self.images[token.index as usize].image() }
 
     /// Get descriptor id of Storage image
-    pub fn storage_id<A: StorageImageAccess>(&self, token: PassImage<A>) -> StorageImageId<A::U> { self.images[token.index as usize].default_view().storage_id() }
+    pub fn storage_id<A: StorageImageAccess>(&self, token: PassImage<A>) -> StorageImageId<A::U> { self.images[token.index as usize].image().default_view().storage_id() }
 
     /// Get descriptor id of Sampled image
-    pub fn sampled_id<A: SampledImageAccess>(&self, token: PassImage<A>) -> SampledImageId { self.images[token.index as usize].default_view().sampled_id() }
+    pub fn sampled_id<A: SampledImageAccess>(&self, token: PassImage<A>) -> SampledImageId { self.images[token.index as usize].image().default_view().sampled_id() }
 
     /// Get `sgpu::Buffer`
     pub fn buffer<A: BufferAccess>(&self, token: PassBuffer<A>) -> Buffer { self.buffers[token.index as usize] }

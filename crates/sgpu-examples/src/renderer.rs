@@ -62,8 +62,8 @@ impl Node<Res, Frame> for Scene {
     }
 
     fn execute(&self, data: &Frame, ctx: &mut ExecutionContext<'_>) {
-        let hdr = ctx.view(self.hdr);
-        let depth = ctx.view(self.depth);
+        let hdr = ctx.image(self.hdr).default_view();
+        let depth = ctx.image(self.depth).default_view();
 
         ctx.cmd().begin_rendering(
             &RenderingBeginInfo {
@@ -129,7 +129,7 @@ impl Node<Res, Frame> for Post {
     }
 
     fn execute(&self, data: &Frame, ctx: &mut ExecutionContext<'_>) {
-        let swapchain = ctx.view(self.swapchain);
+        let swapchain = ctx.image(self.swapchain).default_view();
         let hdr = ctx.sampled_id(self.hdr);
         let extent = data.extent;
 
@@ -163,26 +163,10 @@ impl Node<Res, Frame> for Post {
     }
 }
 
-fn create_hdr_image(width: u32, height: u32) -> Image {
-    create_image(&ImageDescription {
-        usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
-        format: Format::Rgba16Float,
-        extent: Extent3D {
-            width,
-            height,
-            depth: 1,
-        },
-        memory_type: MemoryType::DeviceLocal,
-        ..Default::default()
-    })
-}
-
 struct App {
     swapchain: Swapchain,
     graph: TaskGraph<'static, Res, Frame>,
     res: Res,
-    hdr_image: Image,
-    depth_image: Image,
     texture: Image,
     sampler: Sampler,
     scene_pipeline: RasterizationPipeline,
@@ -252,8 +236,6 @@ impl Application for App {
             },
         });
 
-        let hdr_image = create_hdr_image(size.width, size.height);
-        let depth_image = create_depth_image(size.width, size.height);
         let texture = create_moss_texture();
         let sampler = create_sampler(&SamplerDescription {
             filter: FilterMode::Nearest,
@@ -263,8 +245,28 @@ impl Application for App {
         let mut graph = TaskGraph::new();
         let res = Res {
             swapchain: graph.add_image(Image::default()),
-            hdr: graph.add_image(hdr_image),
-            depth: graph.add_image(depth_image),
+            hdr: graph.create_resizable_image(&ImageDescription {
+                usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
+                format: Format::Rgba16Float,
+                extent: Extent3D {
+                    width: size.width,
+                    height: size.height,
+                    depth: 1,
+                },
+                memory_type: MemoryType::DeviceLocal,
+                ..Default::default()
+            }),
+            depth: graph.create_resizable_image(&ImageDescription {
+                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                format: Format::D32Float,
+                extent: Extent3D {
+                    width: size.width,
+                    height: size.height,
+                    depth: 1,
+                },
+                memory_type: MemoryType::DeviceLocal,
+                ..Default::default()
+            }),
         };
         graph.add_node::<Scene>(SceneConfig {
             pipeline: scene_pipeline,
@@ -281,8 +283,6 @@ impl Application for App {
             swapchain,
             graph,
             res,
-            hdr_image,
-            depth_image,
             texture,
             sampler,
             scene_pipeline,
@@ -319,23 +319,13 @@ impl Application for App {
 
     fn resize(&mut self, width: u32, height: u32) {
         self.swapchain.resize(width, height);
-
-        destroy_image(self.hdr_image);
-        self.hdr_image = create_hdr_image(width, height);
-        destroy_image(self.depth_image);
-        self.depth_image = create_depth_image(width, height);
-        self.graph.set_image(self.res.hdr, self.hdr_image);
-        self.graph.set_image(self.res.depth, self.depth_image);
-
-        self.graph.reset_steady_state();
+        self.graph.resize(width, height);
     }
 }
 
 impl Drop for App {
     fn drop(&mut self) {
         wait_idle();
-        destroy_image(self.hdr_image);
-        destroy_image(self.depth_image);
         destroy_image(self.texture);
         destroy_sampler(self.sampler);
         destroy_rasterization_pipeline(self.scene_pipeline);

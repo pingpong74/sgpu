@@ -79,7 +79,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                     let mut imgs: SmallVec<[ImageBarrier; 8]> = SmallVec::new();
                     for barrier in &barriers.images {
                         imgs.push(ImageBarrier {
-                            view: self.images[barrier.image as usize].default_view(),
+                            view: self.images[barrier.image as usize].image().default_view(),
                             previous_accesses: &barrier.previous,
                             next_accesses: &barrier.next,
                             previous_layout: ImageLayout::Optimal,

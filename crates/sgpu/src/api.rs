@@ -13,10 +13,6 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 pub struct SgpuInititizationInfo {
     pub app_name: &'static str,
     pub enable_validation_layers: bool,
-    /// Enable the validation layer's **sync validation** (`VK_EXT_validation_features`):
-    /// reports missing/incorrect barriers, WAW/RAW hazards and layout mistakes
-    /// at submit time. Requires `enable_validation_layers`; silently skipped
-    /// when the extension isn't available.
     pub enable_sync_validation: bool,
     pub window_handle: Option<raw_window_handle::RawWindowHandle>,
 
@@ -66,6 +62,8 @@ pub fn create_image(image_desc: &ImageDescription) -> Image { crate::CONTEXT.get
 pub unsafe fn create_aliased_resources(image_descs: &[ImageDescription], buffer_descs: &[BufferDescription]) -> (Vec<Image>, Vec<Buffer>) { crate::CONTEXT.get().expect("Not initialized").create_aliased_resources(image_descs, buffer_descs) }
 
 pub fn destroy_image(image: Image) { crate::CONTEXT.get().expect("Not initialized").destroy_image(image); }
+
+pub fn destroy_image_view(image_view: ImageView) { crate::CONTEXT.get().expect("Not initialized").destroy_image_view(image_view); }
 
 pub fn create_sampler(sampler_desc: &SamplerDescription) -> Sampler { crate::CONTEXT.get().expect("Not initialized").create_sampler(sampler_desc) }
 

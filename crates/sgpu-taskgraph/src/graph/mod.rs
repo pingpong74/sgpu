@@ -2,17 +2,20 @@ mod compile;
 mod execute;
 mod timeline;
 
-use sgpu::{AcquiredImage, Buffer, Counter, Image, QueueType};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use sgpu::{AcquiredImage, Buffer, Counter, Image, ImageDescription, QueueType, destroy_image};
 
 use self::compile::{CompiledGraph, NodeDeclaration};
 use crate::node::{ExecutionContext, Node, NodeWriter};
-use crate::resource::Id;
+use crate::resource::{Id, InnerImage};
 
 /// A graph consisting of Node
 /// Each Node points to some work on the GPU
 /// The `TaskGraph` handles all syncronization
 pub struct TaskGraph<'g, R, D> {
-    images: Vec<Image>,
+    graph_id: u32,
+    images: Vec<InnerImage>,
     buffers: Vec<Buffer>,
     entries: Vec<NodeEntry<'g, R, D>>,
     present_id: Option<Id<Image>>,
@@ -25,6 +28,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
     /// Create a new empty `TaskGraph`
     pub fn new() -> TaskGraph<'g, R, D> {
         TaskGraph {
+            graph_id: next_graph_id(),
             images: Vec::new(),
             buffers: Vec::new(),
             entries: Vec::new(),
@@ -38,15 +42,35 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
     /// Add an external Image
     pub fn add_image(&mut self, image: Image) -> Id<Image> {
         self.compiled = None;
-        let id = Id::new(self.images.len() as u32);
-        self.images.push(image);
-        id
+        self.push_image(InnerImage::External(image))
+    }
+
+    /// Create an Image owned by the graph, kept at a fixed size and destroyed
+    /// with the graph
+    pub fn create_image(&mut self, desc: &ImageDescription) -> Id<Image> {
+        self.compiled = None;
+        self.push_image(InnerImage::Persistent {
+            image_desc: *desc,
+            image: sgpu::create_image(desc),
+            resizable: false,
+        })
+    }
+
+    /// Create an Image owned by the graph that is recreated by
+    /// `TaskGraph::resize` and destroyed with the graph
+    pub fn create_resizable_image(&mut self, desc: &ImageDescription) -> Id<Image> {
+        self.compiled = None;
+        self.push_image(InnerImage::Persistent {
+            image_desc: *desc,
+            image: sgpu::create_image(desc),
+            resizable: true,
+        })
     }
 
     /// Add an external Buffer
     pub fn add_buffer(&mut self, buffer: Buffer) -> Id<Buffer> {
         self.compiled = None;
-        let id = Id::new(self.buffers.len() as u32);
+        let id = Id::new(self.buffers.len() as u32, self.graph_id);
         self.buffers.push(buffer);
         id
     }
@@ -62,16 +86,45 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
 
     /// This transitions the given Image to Presentation Optimal Image Layout
     pub fn present_transition(&mut self, id: Id<Image>) {
-        assert!((id.index as usize) < self.images.len(), "image id {id:?} does not belong to this graph (foreign or stale Id?)");
+        self.get_image_index(id);
         self.compiled = None;
         self.present_id = Some(id);
     }
 
-    /// This updates the internal `sgpu::Image`
-    pub fn set_image(&mut self, id: Id<Image>, image: Image) { self.images[id.index as usize] = image; }
+    /// Rebind an external image (e.g. the next swapchain image). Graph-owned
+    /// images cannot be rebound.
+    pub fn set_image(&mut self, id: Id<Image>, image: Image) {
+        let index = self.get_image_index(id) as usize;
+        match &mut self.images[index] {
+            InnerImage::External(current) => *current = image,
+            InnerImage::Persistent { .. } => panic!("image {id:?} is owned by the graph and cannot be rebound"),
+        }
+    }
 
     /// This updates the internal `sgpu::Buffer`
-    pub fn set_buffer(&mut self, id: Id<Buffer>, buffer: Buffer) { self.buffers[id.index as usize] = buffer; }
+    pub fn set_buffer(&mut self, id: Id<Buffer>, buffer: Buffer) {
+        let index = self.get_buffer_index(id) as usize;
+        self.buffers[index] = buffer;
+    }
+
+    /// Recreate every resizable graph-owned image for a new extent and return
+    /// to fresh-resource mode. External and fixed-size images are untouched.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        for slot in &mut self.images {
+            if let InnerImage::Persistent {
+                image_desc,
+                image,
+                resizable: true,
+            } = slot
+            {
+                destroy_image(*image);
+                image_desc.extent.width = width;
+                image_desc.extent.height = height;
+                *image = sgpu::create_image(image_desc);
+            }
+        }
+        self.reset_steady_state();
+    }
 
     /// Resets the execution of the graph, Used for resizing
     pub fn reset_steady_state(&mut self) {
@@ -85,11 +138,12 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             .entries
             .iter()
             .map(|entry| {
-                let mut w = NodeWriter::new(self.images.len(), self.buffers.len());
+                let mut w = NodeWriter::new(self.graph_id, &self.images, &self.buffers);
+                let built = (entry.build)(res, &mut w);
                 NodeDeclaration {
-                    built: (entry.build)(res, &mut w),
-                    images: w.images,
-                    buffers: w.buffers,
+                    built,
+                    images: w.image_accesses,
+                    buffers: w.buffer_accesses,
                 }
             })
             .collect::<Vec<_>>();
@@ -123,6 +177,26 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         }
         self.run(Some(acquired), data)
     }
+
+    fn push_image(&mut self, image: InnerImage) -> Id<Image> {
+        let id = Id::new(self.images.len() as u32, self.graph_id);
+        self.images.push(image);
+        id
+    }
+
+    fn get_image_index(&self, id: Id<Image>) -> u32 { id.check(self.graph_id, self.images.len()) }
+
+    fn get_buffer_index(&self, id: Id<Buffer>) -> u32 { id.check(self.graph_id, self.buffers.len()) }
+}
+
+impl<'g, R, D> Drop for TaskGraph<'g, R, D> {
+    fn drop(&mut self) {
+        for slot in &self.images {
+            if let InnerImage::Persistent { image, .. } = slot {
+                destroy_image(*image);
+            }
+        }
+    }
 }
 
 trait ErasedNode<R, D> {
@@ -137,3 +211,7 @@ struct NodeEntry<'g, R, D> {
     queue: QueueType,
     build: Box<dyn Fn(&R, &mut NodeWriter) -> Box<dyn ErasedNode<R, D> + 'g> + 'g>,
 }
+
+static NEXT_GRAPH_ID: AtomicU32 = AtomicU32::new(1);
+
+pub(crate) fn next_graph_id() -> u32 { NEXT_GRAPH_ID.fetch_add(1, Ordering::Relaxed) }
