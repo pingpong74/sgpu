@@ -62,8 +62,7 @@ impl Instance {
         let layer_names = [VALIDATION_LAYER.as_ptr()];
 
         // Whether the validation layer is actually present (and wanted).
-        let validation_layer_available = sgpu_init_info.enable_validation_layers
-            && unsafe { entry.enumerate_instance_layer_properties().map(|layers| layers.iter().any(|layer| std::ffi::CStr::from_ptr(layer.layer_name.as_ptr()) == VALIDATION_LAYER)).unwrap_or(false) };
+        let validation_layer_available = sgpu_init_info.enable_validation_layers && unsafe { entry.enumerate_instance_layer_properties().map(|layers| layers.iter().any(|layer| std::ffi::CStr::from_ptr(layer.layer_name.as_ptr()) == VALIDATION_LAYER)).unwrap_or(false) };
 
         // Sync validation (VK_EXT_validation_features) rides on top of the
         // validation layer: it reports missing/incorrect barriers, WAW/RAW

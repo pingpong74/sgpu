@@ -201,9 +201,7 @@ impl Context {
         self.device.destroy_sampler(sampler.raw);
     }
 
-    pub(crate) fn destroy_pipeline(&self, pipeline: ash::vk::Pipeline) {
-        unsafe { self.device.handle.destroy_pipeline(pipeline, None) };
-    }
+    pub(crate) fn destroy_pipeline(&self, pipeline: ash::vk::Pipeline) { unsafe { self.device.handle.destroy_pipeline(pipeline, None) }; }
 
     pub(crate) fn destroy_image(&self, image: Image) {
         let inner = self.images.write().unwrap().remove(image.id).expect("Tried to destroy Image twice");

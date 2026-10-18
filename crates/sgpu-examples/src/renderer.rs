@@ -40,8 +40,8 @@ struct SceneConfig {
 }
 
 struct Scene {
-    hdr: PassImage<ColorWrite>,
-    depth: PassImage<DepthWrite>,
+    hdr: PassImage<access::ColorWrite>,
+    depth: PassImage<access::DepthWrite>,
     pipeline: RasterizationPipeline,
     texture: SampledImageId,
     sampler: SamplerId,
@@ -53,8 +53,8 @@ impl Node<Res, Frame> for Scene {
 
     fn declare(res: &Res, config: &SceneConfig, w: &mut NodeWriter) -> Self {
         Scene {
-            hdr: w.image::<ColorWrite>(res.hdr),
-            depth: w.image::<DepthWrite>(res.depth),
+            hdr: w.image(res.hdr),
+            depth: w.image(res.depth),
             pipeline: config.pipeline,
             texture: config.texture.default_view().sampled_id(),
             sampler: config.sampler.descriptor_index(),
@@ -109,8 +109,8 @@ struct PostConfig {
 }
 
 struct Post {
-    swapchain: PassImage<ColorWrite>,
-    hdr: PassImage<FragmentSampledRead>,
+    swapchain: PassImage<access::ColorWrite>,
+    hdr: PassImage<access::FragmentSampledRead>,
     pipeline: RasterizationPipeline,
     sampler: SamplerId,
 }
@@ -121,8 +121,8 @@ impl Node<Res, Frame> for Post {
 
     fn declare(res: &Res, config: &PostConfig, w: &mut NodeWriter) -> Self {
         Post {
-            swapchain: w.image::<ColorWrite>(res.swapchain),
-            hdr: w.image::<FragmentSampledRead>(res.hdr),
+            swapchain: w.image(res.swapchain),
+            hdr: w.image(res.hdr),
             pipeline: config.pipeline,
             sampler: config.sampler.descriptor_index(),
         }
@@ -163,23 +163,6 @@ impl Node<Res, Frame> for Post {
     }
 }
 
-struct PresentPass {
-    swapchain: PassImage<Present>,
-}
-
-impl Node<Res, Frame> for PresentPass {
-    const QUEUE: QueueType = QueueType::Graphics;
-    type Config = ();
-
-    fn declare(res: &Res, _: &(), w: &mut NodeWriter) -> Self {
-        PresentPass {
-            swapchain: w.image::<Present>(res.swapchain),
-        }
-    }
-
-    fn execute(&self, _: &Frame, _: &mut ExecutionContext<'_>) { let _swapchain = self.swapchain; }
-}
-
 fn create_hdr_image(width: u32, height: u32) -> Image {
     create_image(&ImageDescription {
         usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
@@ -194,84 +177,9 @@ fn create_hdr_image(width: u32, height: u32) -> Image {
     })
 }
 
-fn create_depth_image(width: u32, height: u32) -> Image {
-    create_image(&ImageDescription {
-        usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
-        format: Format::D32Float,
-        extent: Extent3D {
-            width,
-            height,
-            depth: 1,
-        },
-        memory_type: MemoryType::DeviceLocal,
-        ..Default::default()
-    })
-}
-
-const MOSS_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/moss_block.png"));
-
-fn create_moss_texture() -> Image {
-    let decoded = image::load_from_memory(MOSS_PNG).expect("Failed to decode moss_block.png").to_rgba8();
-    let (width, height) = decoded.dimensions();
-
-    let staging = create_buffer(&BufferDescription {
-        usage: BufferUsage::TRANSFER_SRC,
-        size: decoded.len() as u64,
-        memory_type: MemoryType::HostVisible,
-    });
-    buffer_as_slice_mut::<u8>(&staging).copy_from_slice(&decoded);
-
-    let texture = create_image(&ImageDescription {
-        usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
-        format: Format::Rgba8Unorm,
-        extent: Extent3D {
-            width,
-            height,
-            depth: 1,
-        },
-        memory_type: MemoryType::DeviceLocal,
-        ..Default::default()
-    });
-
-    let mut recorder = record(QueueType::Graphics);
-    recorder.image_barrier(&ImageBarrier {
-        view: texture.default_view(),
-        previous_accesses: &[AccessType::None],
-        next_accesses: &[AccessType::TransferWrite],
-        discard_contents: true,
-        ..Default::default()
-    });
-    recorder.copy_buffer_to_image(
-        &staging,
-        &texture,
-        &[
-            BufferImageCopyRegion {
-                image_extent: Extent3D {
-                    width,
-                    height,
-                    depth: 1,
-                },
-                ..Default::default()
-            },
-        ],
-    );
-    recorder.image_barrier(&ImageBarrier {
-        view: texture.default_view(),
-        previous_accesses: &[AccessType::TransferWrite],
-        next_accesses: &[AccessType::FragmentShaderSampledRead],
-        discard_contents: false,
-        ..Default::default()
-    });
-
-    wait(submit(&[recorder]));
-
-    destroy_buffer(staging);
-    texture
-}
-
 struct App {
     swapchain: Swapchain,
-    graph: Graph<'static, Res, Frame>,
+    graph: TaskGraph<'static, Res, Frame>,
     res: Res,
     hdr_image: Image,
     depth_image: Image,
@@ -352,7 +260,7 @@ impl Application for App {
             ..Default::default()
         });
 
-        let mut graph = Graph::new();
+        let mut graph = TaskGraph::new();
         let res = Res {
             swapchain: graph.add_image(Image::default()),
             hdr: graph.add_image(hdr_image),
@@ -367,7 +275,7 @@ impl Application for App {
             pipeline: post_pipeline,
             sampler,
         });
-        graph.add_node::<PresentPass>(());
+        graph.present_transition(res.swapchain);
 
         App {
             swapchain,

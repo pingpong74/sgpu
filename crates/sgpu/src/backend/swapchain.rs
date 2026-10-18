@@ -4,7 +4,11 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
     Counter, Image, ImageUsage, ImageView, ImageViewDescription,
-    backend::{context::Context, instance::Instance, resources::{AllocationSource, InnerImage}},
+    backend::{
+        context::Context,
+        instance::Instance,
+        resources::{AllocationSource, InnerImage},
+    },
     swapchain::{AcquiredImage, SwapchainDescription},
 };
 

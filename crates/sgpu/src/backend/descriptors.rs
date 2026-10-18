@@ -96,11 +96,13 @@ impl BindlessDescriptorSet {
     }
 
     pub(crate) fn write_sampler(&self, device: &Device, sampler: vk::Sampler, index: u32) {
-        let sampler_info = [vk::DescriptorImageInfo {
-            sampler,
-            image_view: vk::ImageView::null(),
-            image_layout: vk::ImageLayout::UNDEFINED,
-        }];
+        let sampler_info = [
+            vk::DescriptorImageInfo {
+                sampler,
+                image_view: vk::ImageView::null(),
+                image_layout: vk::ImageLayout::UNDEFINED,
+            },
+        ];
 
         let write_info = [vk::WriteDescriptorSet::default().image_info(&sampler_info).dst_set(self.set).dst_binding(SAMPLER_BINDING).dst_array_element(index).descriptor_count(1).descriptor_type(vk::DescriptorType::SAMPLER)];
 
