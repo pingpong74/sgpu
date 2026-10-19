@@ -8,7 +8,7 @@ use sgpu::{AcquiredImage, Buffer, Counter, Image, ImageDescription, QueueType, d
 
 use self::compile::{CompiledGraph, NodeDeclaration};
 use crate::node::{ExecutionContext, Node, NodeWriter};
-use crate::resource::{Id, InnerImage};
+use crate::resource::{Id, ImageViewPool, InnerImage};
 
 /// A graph consisting of Node
 /// Each Node points to some work on the GPU
@@ -20,6 +20,7 @@ pub struct TaskGraph<'g, R, D> {
     entries: Vec<NodeEntry<'g, R, D>>,
     present_id: Option<Id<Image>>,
     compiled: Option<CompiledGraph<'g, R, D>>,
+    views: ImageViewPool,
     executed_once: bool,
     prev_counters: [Option<Counter>; 3],
 }
@@ -34,6 +35,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             entries: Vec::new(),
             present_id: None,
             compiled: None,
+            views: ImageViewPool::default(),
             executed_once: false,
             prev_counters: [None; 3],
         }
@@ -107,9 +109,17 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         self.buffers[index] = buffer;
     }
 
-    /// Recreate every resizable graph-owned image for a new extent and return
-    /// to fresh-resource mode. External and fixed-size images are untouched.
     pub fn resize(&mut self, width: u32, height: u32) {
+        for (i, slot) in self.images.iter_mut().enumerate() {
+            if let InnerImage::Persistent {
+                resizable: true,
+                ..
+            } = slot
+            {
+                self.views.destroy_slot(i as u32);
+            }
+        }
+        self.views.drain();
         for slot in &mut self.images {
             if let InnerImage::Persistent {
                 image_desc,
@@ -138,7 +148,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             .entries
             .iter()
             .map(|entry| {
-                let mut w = NodeWriter::new(self.graph_id, &self.images, &self.buffers);
+                let mut w = NodeWriter::new(self.graph_id, &self.images, &self.buffers, &mut self.views);
                 let built = (entry.build)(res, &mut w);
                 NodeDeclaration {
                     built,
@@ -191,6 +201,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
 
 impl<'g, R, D> Drop for TaskGraph<'g, R, D> {
     fn drop(&mut self) {
+        self.views.destory_all();
         for slot in &self.images {
             if let InnerImage::Persistent { image, .. } = slot {
                 destroy_image(*image);

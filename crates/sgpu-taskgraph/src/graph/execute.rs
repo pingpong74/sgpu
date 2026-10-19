@@ -30,6 +30,9 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         };
         let mut present_counter = None;
 
+        // Create or recreate the image views of currently bound images
+        self.views.refresh(&self.images);
+
         let compiled = self.compiled.as_ref().expect("graph compiled before run");
         let present_batch_index = compiled.present.then(|| compiled.batches.len() - 1);
 
@@ -94,6 +97,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                     cmd,
                     images: &self.images,
                     buffers: &self.buffers,
+                    views: &self.views,
                 };
                 for &n in &queue_batch.nodes {
                     compiled.built[n].execute(data, &mut ctx);

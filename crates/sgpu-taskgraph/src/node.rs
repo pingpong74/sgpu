@@ -1,7 +1,7 @@
-use sgpu::{AccessType, Buffer, BufferId, CommandBuffer, Image, QueueType, SampledImageId, StorageImageId};
+use sgpu::{AccessType, Buffer, BufferId, CommandBuffer, Image, ImageView, ImageViewDescription, QueueType, SampledImageId, StorageImageId};
 
 use crate::access::{BufferAccess, ImageAccess, SampledImageAccess, StorageImageAccess};
-use crate::resource::{Id, InnerImage, PassBuffer, PassImage};
+use crate::resource::{Id, ImageViewPool, InnerImage, PassBuffer, PassImage, PassView};
 
 /// This represents a bit of GPU work
 pub trait Node<R, D> {
@@ -22,16 +22,18 @@ pub struct NodeWriter<'a> {
     graph_id: u32,
     images: &'a [InnerImage],
     buffers: &'a [Buffer],
+    views: &'a mut ImageViewPool,
     pub(crate) image_accesses: Vec<(u32, AccessType)>,
     pub(crate) buffer_accesses: Vec<(u32, AccessType)>,
 }
 
 impl<'a> NodeWriter<'a> {
-    pub(crate) fn new(graph_id: u32, images: &'a [InnerImage], buffers: &'a [Buffer]) -> Self {
+    pub(crate) fn new(graph_id: u32, images: &'a [InnerImage], buffers: &'a [Buffer], views: &'a mut ImageViewPool) -> Self {
         NodeWriter {
             graph_id,
             images,
             buffers,
+            views,
             image_accesses: Vec::new(),
             buffer_accesses: Vec::new(),
         }
@@ -50,6 +52,13 @@ impl<'a> NodeWriter<'a> {
         self.buffer_accesses.push((index, A::ACCESS));
         PassBuffer::new(index)
     }
+
+    /// Get an `sgpu::ImageView` of the Image with given Access
+    pub fn view<A: ImageAccess>(&mut self, id: Id<Image>, desc: &ImageViewDescription) -> PassView<A> {
+        let index = id.check(self.graph_id, self.images.len());
+        self.image_accesses.push((index, A::ACCESS));
+        PassView::new(self.views.register(index, *desc))
+    }
 }
 
 /// Consists of a CommandBuffer
@@ -58,6 +67,7 @@ pub struct ExecutionContext<'a> {
     pub(crate) cmd: &'a mut CommandBuffer,
     pub(crate) images: &'a [InnerImage],
     pub(crate) buffers: &'a [Buffer],
+    pub(crate) views: &'a ImageViewPool,
 }
 
 impl ExecutionContext<'_> {
@@ -65,17 +75,20 @@ impl ExecutionContext<'_> {
     pub fn cmd(&mut self) -> &mut CommandBuffer { self.cmd }
 
     /// Get `sgpu::Image`
-    pub fn image<A: ImageAccess>(&self, token: PassImage<A>) -> Image { self.images[token.index as usize].image() }
+    pub fn image<A: ImageAccess>(&self, image: PassImage<A>) -> Image { self.images[image.index as usize].image() }
+
+    /// Get the `sgpu::ImageView`
+    pub fn view<A: ImageAccess>(&self, image_view: PassView<A>) -> ImageView { self.views.get(image_view.index, self.images) }
 
     /// Get descriptor id of Storage image
-    pub fn storage_id<A: StorageImageAccess>(&self, token: PassImage<A>) -> StorageImageId<A::U> { self.images[token.index as usize].image().default_view().storage_id() }
+    pub fn storage_id<A: StorageImageAccess>(&self, image: PassImage<A>) -> StorageImageId<A::U> { self.images[image.index as usize].image().default_view().storage_id() }
 
     /// Get descriptor id of Sampled image
-    pub fn sampled_id<A: SampledImageAccess>(&self, token: PassImage<A>) -> SampledImageId { self.images[token.index as usize].image().default_view().sampled_id() }
+    pub fn sampled_id<A: SampledImageAccess>(&self, image: PassImage<A>) -> SampledImageId { self.images[image.index as usize].image().default_view().sampled_id() }
 
     /// Get `sgpu::Buffer`
-    pub fn buffer<A: BufferAccess>(&self, token: PassBuffer<A>) -> Buffer { self.buffers[token.index as usize] }
+    pub fn buffer<A: BufferAccess>(&self, buffer: PassBuffer<A>) -> Buffer { self.buffers[buffer.index as usize] }
 
     /// Get descriptor id of Buffer
-    pub fn descriptor_index<A: BufferAccess>(&self, token: PassBuffer<A>) -> BufferId<A::U> { self.buffers[token.index as usize].descriptor_index() }
+    pub fn descriptor_index<A: BufferAccess>(&self, buffer: PassBuffer<A>) -> BufferId<A::U> { self.buffers[buffer.index as usize].descriptor_index() }
 }
