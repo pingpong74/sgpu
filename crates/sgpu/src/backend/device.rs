@@ -1,7 +1,4 @@
-use std::{
-    mem::ManuallyDrop,
-    sync::{Arc, Mutex},
-};
+use std::{mem::ManuallyDrop, sync::Mutex};
 
 use crate::{
     BufferDescription, ComputePipeline, ImageAspect, ImageDescription, ImageViewDescription, MemoryType, SamplerDescription,
@@ -20,7 +17,7 @@ use crate::{
 use ash::vk::{self, SemaphoreWaitInfo};
 use gpu_allocator::{
     AllocationSizes, AllocatorDebugSettings,
-    vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc},
+    vulkan::{AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc},
 };
 use smallvec::{SmallVec, smallvec};
 
@@ -357,11 +354,6 @@ impl Device {
             AllocationSource::Dedicated(allocation) => {
                 self.allocator.lock().unwrap().free(allocation).expect("Failed to free buffer");
             }
-            AllocationSource::Aliased(allocation) => {
-                if let Ok(allocation) = Arc::try_unwrap(allocation) {
-                    self.allocator.lock().unwrap().free(allocation).expect("Failed to free buffer");
-                }
-            }
         }
     }
 
@@ -390,61 +382,6 @@ impl Device {
             format: desc.format.to_vk(),
             usage: desc.usage,
         }
-    }
-
-    pub(crate) fn create_aliased_resources(&self, image_descs: &[ImageDescription], buffer_descs: &[BufferDescription]) -> (Vec<vk::Image>, Vec<vk::Buffer>, Arc<Allocation>) {
-        assert!(!image_descs.is_empty() || !buffer_descs.is_empty(), "No resources to alias");
-
-        let images: Vec<vk::Image> = image_descs.iter().map(|desc| self.create_vk_image(desc, true)).collect();
-        let buffers: Vec<vk::Buffer> = buffer_descs.iter().map(|desc| self.create_vk_buffer(desc)).collect();
-
-        let mut requirements = vk::MemoryRequirements {
-            size: 0,
-            alignment: 0,
-            memory_type_bits: u32::MAX,
-        };
-
-        for image in &images {
-            let req = unsafe { self.handle.get_image_memory_requirements(*image) };
-            requirements.size = requirements.size.max(req.size);
-            requirements.alignment = requirements.alignment.max(req.alignment);
-            requirements.memory_type_bits &= req.memory_type_bits;
-        }
-
-        for buffer in &buffers {
-            let req = unsafe { self.handle.get_buffer_memory_requirements(*buffer) };
-            requirements.size = requirements.size.max(req.size);
-            requirements.alignment = requirements.alignment.max(req.alignment);
-            requirements.memory_type_bits &= req.memory_type_bits;
-        }
-
-        assert!(requirements.memory_type_bits != 0, "Aliased resources share no compatible memory type");
-
-        let memory_type = image_descs.first().map(|desc| desc.memory_type).or_else(|| buffer_descs.first().map(|desc| desc.memory_type)).unwrap_or(MemoryType::Auto);
-
-        let allocation_create_info = AllocationCreateDesc {
-            name: "aliased",
-            requirements,
-            location: memory_type.to_vk(),
-            linear: true,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-        };
-
-        let allocation = Arc::new(self.allocator.lock().unwrap().allocate(&allocation_create_info).expect("Failed to allocate aliased memory"));
-
-        for image in &images {
-            unsafe {
-                self.handle.bind_image_memory(*image, allocation.memory(), allocation.offset()).expect("Failed to bind image memory");
-            }
-        }
-
-        for buffer in &buffers {
-            unsafe {
-                self.handle.bind_buffer_memory(*buffer, allocation.memory(), allocation.offset()).expect("Failed to bind buffer memory");
-            }
-        }
-
-        (images, buffers, allocation)
     }
 
     pub(crate) fn create_image_view(&self, image: &InnerImage, desc: &ImageViewDescription) -> InnerImageView {
@@ -492,11 +429,6 @@ impl Device {
         match image.allocation {
             AllocationSource::Dedicated(allocation) => {
                 self.allocator.lock().unwrap().free(allocation).expect("Failed to free buffer");
-            }
-            AllocationSource::Aliased(allocation) => {
-                if let Ok(allocation) = Arc::try_unwrap(allocation) {
-                    self.allocator.lock().unwrap().free(allocation).expect("Failed to free buffer");
-                }
             }
         }
     }

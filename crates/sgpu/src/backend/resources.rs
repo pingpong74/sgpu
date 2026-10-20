@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ash::vk;
 use gpu_allocator::vulkan::Allocation;
 
@@ -7,7 +5,6 @@ use crate::ImageUsage;
 
 pub(crate) enum AllocationSource {
     Dedicated(Allocation),
-    Aliased(Arc<Allocation>),
 }
 
 pub(crate) struct InnerBuffer {

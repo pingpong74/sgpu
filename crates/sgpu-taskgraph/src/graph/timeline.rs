@@ -9,10 +9,13 @@ pub(super) enum Resource {
 
 pub(super) struct AccessGroup {
     pub(super) accesses: Vec<AccessType>,
-    pub(super) queue: QueueType,
     pub(super) members: Vec<usize>,
-    pub(super) batch: usize,
-    pub(super) present: bool,
+    // Only used by the member present access
+    pub(super) location: Option<(usize, QueueType)>,
+}
+
+impl AccessGroup {
+    pub(super) fn is_present(&self) -> bool { self.members.is_empty() }
 }
 
 pub(super) struct Timeline {
@@ -25,8 +28,6 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
         let mut timelines: Vec<Timeline> = Vec::new();
 
         for (node, node_declaration) in declared.iter().enumerate() {
-            let queue = self.entries[node].queue;
-
             for &(img, access) in &node_declaration.images {
                 let ti = match timelines.iter().position(|tl| matches!(tl.resource, Resource::Image(i) if i == img)) {
                     Some(i) => i,
@@ -38,7 +39,7 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
                         timelines.len() - 1
                     }
                 };
-                push_group(&mut timelines[ti], access, queue, node);
+                push_group(&mut timelines[ti], access, node);
             }
 
             for &(buf, access) in &node_declaration.buffers {
@@ -52,7 +53,7 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
                         timelines.len() - 1
                     }
                 };
-                push_group(&mut timelines[ti], access, queue, node);
+                push_group(&mut timelines[ti], access, node);
             }
         }
 
@@ -64,13 +65,10 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
         let ti = timelines.iter().position(|tl| matches!(tl.resource, Resource::Image(i) if i == id.index)).expect("graph.present_transition: image is never accessed by any node");
 
         let tl = &mut timelines[ti];
-        let queue = tl.groups.last().unwrap().queue;
         tl.groups.push(AccessGroup {
             accesses: vec![AccessType::Present],
-            queue,
             members: Vec::new(),
-            batch: usize::MAX,
-            present: true,
+            location: None,
         });
         Some(ti)
     }
@@ -82,7 +80,7 @@ pub(super) fn stage_of(accesses: &[AccessType]) -> PipelineStage { accesses.iter
 
 pub(super) fn conflicts(a: &[AccessType], b: &[AccessType]) -> bool { is_write(a) || is_write(b) || a[0].layout_differs(b[0]) }
 
-pub(super) fn push_group(timeline: &mut Timeline, access: AccessType, queue: QueueType, node: usize) {
+pub(super) fn push_group(timeline: &mut Timeline, access: AccessType, node: usize) {
     let mergeable = timeline.groups.last().is_some_and(|last| !is_write(&last.accesses) && !access.is_write() && !access.layout_differs(last.accesses[0]));
 
     if mergeable {
@@ -92,10 +90,8 @@ pub(super) fn push_group(timeline: &mut Timeline, access: AccessType, queue: Que
     } else {
         timeline.groups.push(AccessGroup {
             accesses: vec![access],
-            queue,
             members: vec![node],
-            batch: 0,
-            present: false,
+            location: None,
         });
     }
 }

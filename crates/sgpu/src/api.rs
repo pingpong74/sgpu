@@ -57,10 +57,6 @@ pub fn destroy_buffer(buffer: Buffer) { crate::CONTEXT.get().expect("Not initial
 
 pub fn create_image(image_desc: &ImageDescription) -> Image { crate::CONTEXT.get().expect("Not initialized").create_image(image_desc) }
 
-// # Safety:
-// Creates images and buffers that all share a single memory allocation.
-pub unsafe fn create_aliased_resources(image_descs: &[ImageDescription], buffer_descs: &[BufferDescription]) -> (Vec<Image>, Vec<Buffer>) { crate::CONTEXT.get().expect("Not initialized").create_aliased_resources(image_descs, buffer_descs) }
-
 pub fn destroy_image(image: Image) { crate::CONTEXT.get().expect("Not initialized").destroy_image(image); }
 
 pub fn destroy_image_view(image_view: ImageView) { crate::CONTEXT.get().expect("Not initialized").destroy_image_view(image_view); }

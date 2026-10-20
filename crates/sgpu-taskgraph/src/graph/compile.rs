@@ -103,14 +103,17 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             }
         }
 
-        for tl in timelines.iter_mut() {
-            for g in &mut tl.groups {
-                g.batch = g.members.iter().map(|&m| task_to_batch[m]).max().unwrap_or(0);
-            }
-        }
-
+        // Only the present access group has queue_type and batch
         if let Some(ti) = present {
-            timelines[ti].groups.last_mut().unwrap().batch = batches.len();
+            let tl = &mut timelines[ti];
+            let real_last = &tl.groups[tl.groups.len() - 2];
+            let queue = if real_last.members.iter().any(|&m| self.entries[m].queue == QueueType::Graphics) {
+                QueueType::Graphics
+            } else {
+                let last = real_last.members.iter().copied().max_by_key(|&m| (task_to_batch[m], self.entries[m].queue as usize)).expect("real last group has members");
+                self.entries[last].queue
+            };
+            tl.groups.last_mut().unwrap().location = Some((batches.len(), queue));
         }
 
         (batches, task_to_batch)
@@ -132,7 +135,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
 
         if let Some(ti) = present {
             let tl = &timelines[ti];
-            let queue = tl.groups.last().unwrap().queue;
+            let (_, queue) = tl.groups.last().unwrap().location.expect("present group has a location");
             let mut present_batch = QueueBatch::new(queue, Vec::new());
 
             let real_last = &tl.groups[tl.groups.len() - 2];
@@ -144,10 +147,9 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             }
 
             let first = &tl.groups[0];
-            let anchor = first.members[0];
-            let anchor_queue = self.entries[anchor].queue;
-            queue_batch_mut(&mut queue_batches, task_to_batch[anchor], anchor_queue).acquire = true;
-            for &m in &first.members[1..] {
+            let (anchor_batch, anchor_queue) = self.group_anchor(&first.members, task_to_batch);
+            queue_batch_mut(&mut queue_batches, anchor_batch, anchor_queue).acquire = true;
+            for &m in &first.members {
                 let mq = self.entries[m].queue;
                 if mq != anchor_queue {
                     add_wait(queue_batch_mut(&mut queue_batches, task_to_batch[m], mq), anchor_queue, stage_of(&first.accesses));
@@ -160,6 +162,11 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         queue_batches
     }
 
+    fn group_anchor(&self, members: &[usize], task_to_batch: &[usize]) -> (usize, QueueType) {
+        let anchor = members.iter().copied().min_by_key(|&m| (task_to_batch[m], self.entries[m].queue as usize)).expect("group has members");
+        (task_to_batch[anchor], self.entries[anchor].queue)
+    }
+
     pub(super) fn derive_sync(&self, timelines: &[Timeline], task_to_batch: &[usize], queue_batches: &mut [Vec<QueueBatch>]) {
         for tl in timelines {
             for pair in tl.groups.windows(2) {
@@ -169,18 +176,24 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                 }
 
                 let dst_stage = stage_of(&dst.accesses);
-                for &dm in &dst.members {
-                    for &sm in &src.members {
-                        let (dq, sq) = (self.entries[dm].queue, self.entries[sm].queue);
-                        if dq != sq {
-                            add_wait(queue_batch_mut(queue_batches, task_to_batch[dm], dq), sq, dst_stage);
+                for &dst_member in &dst.members {
+                    for &src_member in &src.members {
+                        let (dst_queue, src_queue) = (self.entries[dst_member].queue, self.entries[src_member].queue);
+                        if dst_queue != src_queue {
+                            add_wait(queue_batch_mut(queue_batches, task_to_batch[dst_member], dst_queue), src_queue, dst_stage);
                         }
                     }
                 }
 
-                let queue_batch = queue_batch_mut(queue_batches, dst.batch, dst.queue);
                 match tl.resource {
                     Resource::Image(img) => {
+                        let (host_batch, host_queue) = if dst.members.is_empty() {
+                            dst.location.expect("present group has a location")
+                        } else {
+                            self.group_anchor(&dst.members, task_to_batch)
+                        };
+
+                        let queue_batch = queue_batch_mut(queue_batches, host_batch, host_queue);
                         let spec = CompiledImageBarrier {
                             image: img,
                             previous: src.accesses.clone(),
@@ -189,14 +202,30 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                         };
                         queue_batch.undefined_barriers.images.push(spec.clone());
                         queue_batch.barriers.images.push(spec);
+
+                        for &member in &dst.members {
+                            let dm_queue = self.entries[member].queue;
+                            if dm_queue != host_queue {
+                                add_wait(queue_batch_mut(queue_batches, task_to_batch[member], dm_queue), host_queue, dst_stage);
+                            }
+                        }
                     }
                     Resource::Buffer(_) => {
-                        for barriers in [
-                            &mut queue_batch.undefined_barriers,
-                            &mut queue_batch.barriers,
-                        ] {
-                            barriers.global.previous.extend_from_slice(&src.accesses);
-                            barriers.global.next.extend_from_slice(&dst.accesses);
+                        let mut placed: Vec<(usize, QueueType)> = dst.members.iter().map(|&m| (task_to_batch[m], self.entries[m].queue)).collect();
+                        if dst.members.is_empty() {
+                            placed.push(dst.location.expect("present group has a location"));
+                        }
+                        placed.sort_unstable_by_key(|&(batch, queue)| (batch, queue as usize));
+                        placed.dedup();
+                        for (batch, queue) in placed {
+                            let queue_batch = queue_batch_mut(queue_batches, batch, queue);
+                            for barriers in [
+                                &mut queue_batch.undefined_barriers,
+                                &mut queue_batch.barriers,
+                            ] {
+                                barriers.global.previous.extend_from_slice(&src.accesses);
+                                barriers.global.next.extend_from_slice(&dst.accesses);
+                            }
                         }
                     }
                 }
@@ -206,7 +235,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             let last = &tl.groups[tl.groups.len() - 1];
             let conflict = conflicts(&first.accesses, &last.accesses);
 
-            if conflict && !last.present {
+            if conflict && !last.is_present() {
                 for &fm in &first.members {
                     for &lm in &last.members {
                         let (fq, lq) = (self.entries[fm].queue, self.entries[lm].queue);
@@ -217,8 +246,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                 }
             }
 
-            let anchor = first.members[0];
-            let (fb, fq) = (task_to_batch[anchor], self.entries[anchor].queue);
+            let (fb, fq) = self.group_anchor(&first.members, task_to_batch);
 
             match tl.resource {
                 Resource::Image(img) => {
@@ -236,7 +264,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                             image: img,
                             previous: last.accesses.clone(),
                             next: first.accesses.clone(),
-                            discard: last.present && is_write(&first.accesses),
+                            discard: last.is_present() && is_write(&first.accesses),
                         });
                     }
                 }
@@ -265,7 +293,7 @@ fn push_wait(waits: &mut Vec<(QueueType, PipelineStage)>, src: QueueType, stage:
     }
 }
 
-/// Kahn's algorithm for topological sort
+// Kahn's algorithm for topological sort
 pub(super) fn topological_batches(adj: &[Vec<usize>]) -> Vec<Vec<usize>> {
     use std::collections::VecDeque;
 

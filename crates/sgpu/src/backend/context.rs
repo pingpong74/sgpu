@@ -5,7 +5,7 @@ use crate::{
         commands::*,
         descriptors::BindlessDescriptorSet,
         device::Device,
-        resources::{AllocationSource, InnerBuffer, InnerImage, InnerImageView},
+        resources::{InnerBuffer, InnerImage, InnerImageView},
     },
     commands::{CommandBuffer, QueueType},
     pipeline::{RasterizationPipeline, RasterizationPipelineDescription, ShaderModule},
@@ -111,56 +111,6 @@ impl Context {
         };
         image.default_view = self.create_image_view(&desc.default_view, image);
         image
-    }
-
-    pub(crate) fn create_aliased_resources(&self, image_descs: &[ImageDescription], buffer_descs: &[BufferDescription]) -> (Vec<Image>, Vec<Buffer>) {
-        let (images, buffers, allocation) = self.device.create_aliased_resources(image_descs, buffer_descs);
-
-        let images: Vec<Image> = images
-            .into_iter()
-            .zip(image_descs)
-            .map(|(raw, desc)| {
-                let inner = InnerImage {
-                    image: raw,
-                    allocation: AllocationSource::Aliased(allocation.clone()),
-                    format: desc.format.to_vk(),
-                    usage: desc.usage,
-                };
-
-                let id = self.images.write().unwrap().insert(inner);
-
-                let mut image = Image {
-                    raw,
-                    default_view: ImageView::default(),
-                    id,
-                };
-                image.default_view = self.create_image_view(&desc.default_view, image);
-                image
-            })
-            .collect();
-
-        let buffers: Vec<Buffer> = buffers
-            .into_iter()
-            .zip(buffer_descs)
-            .map(|(raw, desc)| {
-                let inner = InnerBuffer {
-                    buffer: raw,
-                    size: desc.size,
-                    mapped_ptr: allocation.mapped_ptr().map(|p| p.as_ptr() as *mut u8),
-                    allocation: AllocationSource::Aliased(allocation.clone()),
-                };
-
-                let id = self.buffers.write().unwrap().insert(inner);
-
-                if desc.usage.contains(BufferUsage::STORAGE) {
-                    self.bindless_descriptor_set.write_buffer(&self.device, raw, id.data().as_ffi() as u32);
-                }
-
-                Buffer { raw, id }
-            })
-            .collect();
-
-        (images, buffers)
     }
 
     pub(crate) fn create_image_view(&self, desc: &ImageViewDescription, image: Image) -> ImageView {
