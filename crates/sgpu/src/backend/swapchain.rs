@@ -104,8 +104,10 @@ pub(crate) struct InnerSwapchain {
     present_semaphores: Vec<vk::Semaphore>,
     fences: Vec<vk::Fence>,
 
-    actual_image_count: usize,
+    pub(crate) actual_image_count: usize,
     frame_timeline: usize,
+
+    pub(crate) extent: vk::Extent2D,
 }
 
 impl InnerSwapchain {
@@ -219,6 +221,7 @@ impl InnerSwapchain {
             fences,
             actual_image_count,
             frame_timeline: 0,
+            extent,
         }
     }
 
@@ -241,6 +244,7 @@ impl InnerSwapchain {
             acquire_semaphore: self.acquire_semaphores[slot],
             present_semaphore: self.present_semaphores[index as usize],
             slot,
+            slot_count: self.actual_image_count,
         }
     }
 

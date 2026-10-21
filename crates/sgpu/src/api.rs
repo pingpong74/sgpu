@@ -57,6 +57,16 @@ pub fn destroy_buffer(buffer: Buffer) { crate::CONTEXT.get().expect("Not initial
 
 pub fn create_image(image_desc: &ImageDescription) -> Image { crate::CONTEXT.get().expect("Not initialized").create_image(image_desc) }
 
+pub fn image_requirements(image_desc: &ImageDescription) -> ResourceRequirements { crate::CONTEXT.get().expect("Not initialized").image_requirements(image_desc) }
+
+pub fn buffer_requirements(buffer_desc: &BufferDescription) -> ResourceRequirements { crate::CONTEXT.get().expect("Not initialized").buffer_requirements(buffer_desc) }
+
+/// Creates one aliased heap of resources
+///
+/// # Safety
+/// Images must carry `aliased: true` when they are aliased
+pub unsafe fn create_pooled_resources(plan: &PooledResourceDescription<'_>) -> (Vec<Image>, Vec<Buffer>) { crate::CONTEXT.get().expect("Not initialized").create_pooled_resources(plan) }
+
 pub fn destroy_image(image: Image) { crate::CONTEXT.get().expect("Not initialized").destroy_image(image); }
 
 pub fn destroy_image_view(image_view: ImageView) { crate::CONTEXT.get().expect("Not initialized").destroy_image_view(image_view); }

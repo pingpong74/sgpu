@@ -3,8 +3,11 @@ use gpu_allocator::vulkan::Allocation;
 
 use crate::ImageUsage;
 
+use std::sync::Arc;
+
 pub(crate) enum AllocationSource {
     Dedicated(Allocation),
+    Aliased(Arc<Allocation>),
 }
 
 pub(crate) struct InnerBuffer {
@@ -20,7 +23,6 @@ pub(crate) struct InnerImageView {
     pub(crate) subresources: vk::ImageSubresourceRange,
 }
 
-// need to handle views some how tho
 pub(crate) struct InnerImage {
     pub(crate) image: ash::vk::Image,
     pub(crate) allocation: AllocationSource,

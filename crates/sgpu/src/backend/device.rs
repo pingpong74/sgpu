@@ -1,4 +1,7 @@
-use std::{mem::ManuallyDrop, sync::Mutex};
+use std::{
+    mem::ManuallyDrop,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     BufferDescription, ComputePipeline, ImageAspect, ImageDescription, ImageViewDescription, MemoryType, SamplerDescription,
@@ -66,6 +69,7 @@ impl Device {
         let mut device_extensions = vec![
             ash::khr::swapchain::NAME.as_ptr(),
             ash::khr::synchronization2::NAME.as_ptr(),
+            ash::khr::maintenance4::NAME.as_ptr(),
         ];
 
         if sgpu_init_info.ray_tracing {
@@ -121,6 +125,11 @@ impl Device {
             .draw_indirect_count(true)
             .buffer_device_address(true)
             .timeline_semaphore(true)
+            // rust-gpu shaders emit device-scoped atomics under the Vulkan
+            // memory model (sgpu_shaders::interlocked_add) — both Vk12 bits
+            // are required by the module's declared capabilities.
+            .vulkan_memory_model(true)
+            .vulkan_memory_model_device_scope(true)
             .descriptor_indexing(true)
             .shader_sampled_image_array_non_uniform_indexing(true)
             .shader_storage_buffer_array_non_uniform_indexing(true)
@@ -270,49 +279,21 @@ impl Device {
         }
     }
 
-    fn create_vk_buffer(&self, desc: &BufferDescription) -> vk::Buffer {
+    fn buffer_create_info(&self, desc: &BufferDescription) -> vk::BufferCreateInfo<'_> {
         let sharing_mode = if self.queue_families.len() == 1 {
             vk::SharingMode::EXCLUSIVE
         } else {
             vk::SharingMode::CONCURRENT
         };
 
-        let buffer_create_info = vk::BufferCreateInfo::default().usage(desc.usage.to_vk() | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS).size(desc.size).sharing_mode(sharing_mode).queue_family_indices(&self.queue_families);
-
-        unsafe { self.handle.create_buffer(&buffer_create_info, None).expect("Failed to create buffer ") }
-    }
-
-    fn create_vk_image(&self, desc: &ImageDescription, alias: bool) -> vk::Image {
-        let sharing_mode = if self.queue_families.len() == 1 {
-            vk::SharingMode::EXCLUSIVE
-        } else {
-            vk::SharingMode::CONCURRENT
-        };
-
-        let mut create_flags = desc.create_flags.to_vk();
-        if alias {
-            create_flags |= vk::ImageCreateFlags::ALIAS;
-        }
-
-        let image_create_info = vk::ImageCreateInfo::default()
-            .flags(create_flags)
-            .usage(desc.usage.to_vk())
-            .extent(desc.extent.to_vk())
-            .format(desc.format.to_vk())
-            .array_layers(desc.array_layers)
-            .mip_levels(desc.mip_levels)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .image_type(desc.image_type.to_vk())
-            .samples(desc.samples.to_vk())
-            .tiling(vk::ImageTiling::OPTIMAL)
-            .sharing_mode(sharing_mode)
-            .queue_family_indices(&self.queue_families);
-
-        unsafe { self.handle.create_image(&image_create_info, None).expect("Failed to create Image") }
+        vk::BufferCreateInfo::default().usage(desc.usage.to_vk() | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS).size(desc.size).sharing_mode(sharing_mode).queue_family_indices(&self.queue_families)
     }
 
     pub(crate) fn create_buffer(&self, desc: &BufferDescription) -> InnerBuffer {
-        let buffer = self.create_vk_buffer(desc);
+        let buffer = unsafe {
+            let buffer_create_info = self.buffer_create_info(desc);
+            self.handle.create_buffer(&buffer_create_info, None).expect("Failed to create buffer ")
+        };
         let memory_requirements = unsafe { self.handle.get_buffer_memory_requirements(buffer) };
 
         let allocation_create_info = AllocationCreateDesc {
@@ -354,11 +335,46 @@ impl Device {
             AllocationSource::Dedicated(allocation) => {
                 self.allocator.lock().unwrap().free(allocation).expect("Failed to free buffer");
             }
+            AllocationSource::Aliased(allocation) => {
+                if let Ok(allocation) = Arc::try_unwrap(allocation) {
+                    self.allocator.lock().unwrap().free(allocation).expect("Failed to free aliased heap");
+                }
+            }
         }
     }
 
+    fn image_create_info(&self, desc: &ImageDescription, alias: bool) -> vk::ImageCreateInfo<'_> {
+        let sharing_mode = if self.queue_families.len() == 1 {
+            vk::SharingMode::EXCLUSIVE
+        } else {
+            vk::SharingMode::CONCURRENT
+        };
+
+        let mut create_flags = desc.create_flags.to_vk();
+        if alias {
+            create_flags |= vk::ImageCreateFlags::ALIAS;
+        }
+
+        vk::ImageCreateInfo::default()
+            .flags(create_flags)
+            .usage(desc.usage.to_vk())
+            .extent(desc.extent.to_vk())
+            .format(desc.format.to_vk())
+            .array_layers(desc.array_layers)
+            .mip_levels(desc.mip_levels)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .image_type(desc.image_type.to_vk())
+            .samples(desc.samples.to_vk())
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .sharing_mode(sharing_mode)
+            .queue_family_indices(&self.queue_families)
+    }
+
     pub(crate) fn create_image(&self, desc: &ImageDescription) -> InnerImage {
-        let image = self.create_vk_image(desc, false);
+        let image = unsafe {
+            let image_create_info = self.image_create_info(desc, false);
+            self.handle.create_image(&image_create_info, None).expect("Failed to create Image")
+        };
 
         let memory_requirements = unsafe { self.handle.get_image_memory_requirements(image) };
 
@@ -430,6 +446,80 @@ impl Device {
             AllocationSource::Dedicated(allocation) => {
                 self.allocator.lock().unwrap().free(allocation).expect("Failed to free buffer");
             }
+            AllocationSource::Aliased(allocation) => {
+                if let Ok(allocation) = Arc::try_unwrap(allocation) {
+                    self.allocator.lock().unwrap().free(allocation).expect("Failed to free aliased heap");
+                }
+            }
+        }
+    }
+
+    pub(crate) fn image_requirements(&self, desc: &ImageDescription) -> vk::MemoryRequirements {
+        let create_info = self.image_create_info(desc, false);
+        let info = vk::DeviceImageMemoryRequirements::default().create_info(&create_info);
+        let mut requirements = vk::MemoryRequirements2::default();
+        unsafe { self.handle.get_device_image_memory_requirements(&info, &mut requirements) };
+        requirements.memory_requirements
+    }
+
+    pub(crate) fn buffer_requirements(&self, desc: &BufferDescription) -> vk::MemoryRequirements {
+        let buffer_create_info = self.buffer_create_info(desc);
+        let info = vk::DeviceBufferMemoryRequirements::default().create_info(&buffer_create_info);
+        let mut requirements = vk::MemoryRequirements2::default();
+        unsafe { self.handle.get_device_buffer_memory_requirements(&info, &mut requirements) };
+        requirements.memory_requirements
+    }
+
+    pub(crate) fn create_pooled_image(&self, desc: &ImageDescription, allocation: Arc<gpu_allocator::vulkan::Allocation>, offset: u64, aliased: bool) -> InnerImage {
+        let image = unsafe {
+            let image_create_info = self.image_create_info(desc, aliased);
+            self.handle.create_image(&image_create_info, None).expect("Failed to create Image")
+        };
+
+        let requirements = unsafe { self.handle.get_image_memory_requirements(image) };
+
+        assert_eq!(offset % requirements.alignment, 0, "pooled image offset {offset} violates this image's alignment {}", requirements.alignment);
+        assert!(offset + requirements.size <= allocation.size(), "pooled image outgrows its heap: schedule and requirements disagree");
+
+        unsafe {
+            self.handle.bind_image_memory(image, allocation.memory(), allocation.offset() + offset).expect("Failed to bind image memory");
+        }
+
+        InnerImage {
+            image,
+            allocation: AllocationSource::Aliased(allocation),
+            format: desc.format.to_vk(),
+            usage: desc.usage,
+        }
+    }
+
+    pub(crate) fn create_pooled_buffer(&self, desc: &BufferDescription, allocation: Arc<gpu_allocator::vulkan::Allocation>, offset: u64) -> InnerBuffer {
+        let buffer = unsafe {
+            let buffer_create_info = self.buffer_create_info(desc);
+            self.handle.create_buffer(&buffer_create_info, None).expect("Failed to create buffer ")
+        };
+
+        let requirements = unsafe { self.handle.get_buffer_memory_requirements(buffer) };
+
+        assert_eq!(offset % requirements.alignment, 0, "pooled buffer offset {offset} violates this buffer's alignment {}", requirements.alignment);
+        assert!(offset + requirements.size <= allocation.size(), "pooled buffer outgrows its heap: schedule and requirements disagree");
+
+        unsafe {
+            self.handle.bind_buffer_memory(buffer, allocation.memory(), allocation.offset() + offset).expect("Failed to bind buffer memory");
+        }
+
+        let _buffer_address = unsafe { self.handle.get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer)) };
+
+        let mapped_ptr = match desc.memory_type {
+            MemoryType::HostVisible | MemoryType::PreferHost => allocation.mapped_ptr().map(|ptr| unsafe { ptr.as_ptr().add(offset as usize) as *mut u8 }),
+            _ => None,
+        };
+
+        InnerBuffer {
+            buffer,
+            size: desc.size,
+            mapped_ptr,
+            allocation: AllocationSource::Aliased(allocation),
         }
     }
 

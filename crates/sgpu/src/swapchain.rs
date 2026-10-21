@@ -16,6 +16,7 @@ pub struct AcquiredImage {
     pub(crate) image: Image,
     pub(crate) image_index: usize,
     pub(crate) slot: usize,
+    pub(crate) slot_count: usize,
     pub(crate) acquire_semaphore: ash::vk::Semaphore,
     pub(crate) present_semaphore: ash::vk::Semaphore,
 }
@@ -23,6 +24,12 @@ pub struct AcquiredImage {
 impl AcquiredImage {
     #[inline]
     pub fn image(&self) -> Image { self.image }
+
+    #[inline]
+    pub fn frame_index(&self) -> usize { self.slot }
+
+    #[inline]
+    pub fn frames_in_flight(&self) -> usize { self.slot_count }
 }
 
 pub struct Swapchain {
@@ -47,7 +54,11 @@ impl Swapchain {
         self.inner = new;
     }
 
+    pub fn extent(&self) -> (u32, u32) { (self.inner.extent.width, self.inner.extent.height) }
+
     pub fn acquire_image(&mut self) -> AcquiredImage { self.inner.acquire_image() }
+
+    pub fn frame_count(&self) -> usize { self.inner.actual_image_count }
 
     pub fn present(&mut self, accquired_image: &AcquiredImage, counter: Counter) { self.inner.present(accquired_image, counter); }
 }

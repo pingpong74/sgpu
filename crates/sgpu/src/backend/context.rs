@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, BufferDescription, BufferUsage, ComputePipeline, Counter, Image, ImageDescription, ImageUsage, ImageView, ImageViewDescription, Sampler, SamplerDescription,
+    Buffer, BufferDescription, BufferUsage, ComputePipeline, Counter, Image, ImageDescription, ImageUsage, ImageView, ImageViewDescription, MemoryType, PooledResourceDescription, ResourceRequirements, Sampler, SamplerDescription,
     api::SgpuInititizationInfo,
     backend::{
         commands::*,
@@ -14,9 +14,14 @@ use crate::{
 
 use super::instance::Instance;
 use ash::vk;
+use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use slotmap::{DefaultKey, Key, SlotMap};
 
-use std::{collections::HashMap, sync::RwLock, thread::ThreadId};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    thread::ThreadId,
+};
 
 pub(crate) struct Context {
     pub(crate) instance: Instance,
@@ -111,6 +116,116 @@ impl Context {
         };
         image.default_view = self.create_image_view(&desc.default_view, image);
         image
+    }
+
+    pub(crate) fn image_requirements(&self, desc: &ImageDescription) -> ResourceRequirements {
+        let requirements = self.device.image_requirements(desc);
+        ResourceRequirements {
+            size: requirements.size,
+            alignment: requirements.alignment,
+            memory_type_bits: requirements.memory_type_bits,
+        }
+    }
+
+    pub(crate) fn buffer_requirements(&self, desc: &BufferDescription) -> ResourceRequirements {
+        let requirements = self.device.buffer_requirements(desc);
+        ResourceRequirements {
+            size: requirements.size,
+            alignment: requirements.alignment,
+            memory_type_bits: requirements.memory_type_bits,
+        }
+    }
+
+    /// Creates one transient heap and binds a pooled instance per member at
+    /// its scheduled offset. The heap's location, size, alignment and
+    /// memory-type bits are derived from the members themselves — the
+    /// object-less probes are description-deterministic, so the
+    /// re-derivation reproduces the sweep's aggregates exactly. One heap +
+    /// one instance set per call; per-slot heaps come from calling it once
+    /// per slot.
+    pub(crate) fn create_pooled_resources(&self, plan: &PooledResourceDescription<'_>) -> (Vec<Image>, Vec<Buffer>) {
+        let mut memory_type: Option<MemoryType> = None;
+        let mut alignment = 1u64;
+        let mut memory_type_bits = u32::MAX;
+        let mut end = 0u64;
+
+        let members = plan.images.iter().map(|member| (member.desc.memory_type, self.device.image_requirements(&member.desc), member.offset)).chain(plan.buffers.iter().map(|member| (member.desc.memory_type, self.device.buffer_requirements(&member.desc), member.offset)));
+        for (member_type, requirements, offset) in members {
+            end = (offset + requirements.size).max(end);
+            alignment = alignment.max(requirements.alignment);
+            memory_type_bits &= requirements.memory_type_bits;
+            match memory_type {
+                Some(existing) => assert_eq!(existing, member_type, "pooled plan mixes memory types ({existing:?} vs {member_type:?})"),
+                None => memory_type = Some(member_type),
+            }
+        }
+
+        let Some(memory_type) = memory_type else {
+            return (Vec::new(), Vec::new());
+        };
+
+        // The sweep's final claim end, rounded up to the aggregate alignment.
+        let heap_size = end.div_ceil(alignment).max(1) * alignment;
+
+        let linear = plan.images.is_empty();
+
+        let allocation: Arc<Allocation> = Arc::new(
+            self.device
+                .allocator
+                .lock()
+                .unwrap()
+                .allocate(&AllocationCreateDesc {
+                    name: &format!("taskgraph-heap-{:?}", memory_type),
+                    requirements: vk::MemoryRequirements {
+                        size: heap_size,
+                        alignment,
+                        memory_type_bits,
+                    },
+                    location: memory_type.to_vk(),
+                    linear,
+                    allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+                })
+                .expect("Failed to allocate transient heap"),
+        );
+
+        let pooled_images: Vec<Image> = plan
+            .images
+            .iter()
+            .map(|member| {
+                let inner = self.device.create_pooled_image(&member.desc, allocation.clone(), member.offset, member.aliased);
+                let raw = inner.image;
+                let id = self.images.write().unwrap().insert(inner);
+
+                let mut image = Image {
+                    raw,
+                    default_view: ImageView::default(),
+                    id,
+                };
+                image.default_view = self.create_image_view(&member.desc.default_view, image);
+                image
+            })
+            .collect();
+
+        let pooled_buffers: Vec<Buffer> = plan
+            .buffers
+            .iter()
+            .map(|member| {
+                let inner = self.device.create_pooled_buffer(&member.desc, allocation.clone(), member.offset);
+                let buffer = inner.buffer;
+                let id = self.buffers.write().unwrap().insert(inner);
+
+                if member.desc.usage.contains(BufferUsage::STORAGE) {
+                    self.bindless_descriptor_set.write_buffer(&self.device, buffer, id.data().as_ffi() as u32);
+                }
+
+                Buffer {
+                    raw: buffer,
+                    id,
+                }
+            })
+            .collect();
+
+        (pooled_images, pooled_buffers)
     }
 
     pub(crate) fn create_image_view(&self, desc: &ImageViewDescription, image: Image) -> ImageView {

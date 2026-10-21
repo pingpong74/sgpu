@@ -74,7 +74,7 @@ impl Offset2D {
 }
 
 /// Memory Types
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MemoryType {
     /// Resides on Gpu, Not accessible by the host
     DeviceLocal,
@@ -95,6 +95,38 @@ impl MemoryType {
             Self::Auto => MemoryLocation::Unknown,
         }
     }
+}
+
+/// Memory requirements of a resource description
+#[derive(Debug, Clone, Copy)]
+pub struct ResourceRequirements {
+    /// size in bytes.
+    pub size: u64,
+    /// Alignment in bytes
+    pub alignment: u64,
+    /// Raw vulkan memory bits
+    pub memory_type_bits: u32,
+}
+
+/// One image member of a pooled heap
+/// If the image shares memory with another image,
+/// `aliased` must be true
+pub struct PooledImageDescription {
+    pub desc: ImageDescription,
+    pub offset: u64,
+    pub aliased: bool,
+}
+
+/// One buffer member of a pooled heap
+pub struct PooledBufferDescription {
+    pub desc: BufferDescription,
+    pub offset: u64,
+}
+
+/// Resources pooled to share a simgle memory heap
+pub struct PooledResourceDescription<'a> {
+    pub images: &'a [PooledImageDescription],
+    pub buffers: &'a [PooledBufferDescription],
 }
 
 bitflags::bitflags! {
