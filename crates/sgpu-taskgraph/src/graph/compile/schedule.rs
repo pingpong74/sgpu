@@ -1,95 +1,110 @@
+use sgpu::QueueType;
+
 use super::timeline::Timeline;
-use crate::TaskGraph;
 
 #[derive(Debug)]
 pub(crate) struct Schedule {
-    // Batches created by kahns algorithm
+    // Batches created by Kahn's algorithm
     pub(crate) batches: Vec<Vec<usize>>,
-    // Node to batch index
-    pub(crate) task_to_batch: Vec<usize>,
-    // (timeline_index, access_group) each batch touches
-    extents: Vec<Vec<(usize, usize)>>,
+    // Wave span of every access group
+    spans: Vec<Vec<GroupSpan>>,
+    // Node to queue index
+    node_queue: Vec<usize>,
 }
 
-/// Where one access group runs: its span over the waves, from the first
-/// member's wave to the last member's (a group can sit on several queues in
-/// one wave; the span covers all of them).
-#[derive(Clone, Copy)]
-pub(crate) struct Placement {
-    first: usize,
-    last: usize,
+// Where one access group runs: its wave span on each queue.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GroupSpan {
+    first_wave: [Option<usize>; 3],
+    last_wave: [Option<usize>; 3],
 }
 
-impl Placement {
-    pub(crate) fn start(&self) -> usize { self.first }
-    pub(crate) fn end(&self) -> usize { self.last }
+// A queue-local slice of the schedule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SliceId {
+    pub(crate) wave: usize,
+    pub(crate) queue: usize,
+}
+
+impl GroupSpan {
+    fn new(members: &[usize], task_to_batch: &[usize], node_queue: &[usize]) -> Self {
+        let mut span = GroupSpan {
+            first_wave: [None; 3],
+            last_wave: [None; 3],
+        };
+        for &member in members {
+            let (batch, queue) = (task_to_batch[member], node_queue[member]);
+            span.first_wave[queue] = Some(span.first_wave[queue].map_or(batch, |first| first.min(batch)));
+            span.last_wave[queue] = Some(span.last_wave[queue].map_or(batch, |last| last.max(batch)));
+        }
+        debug_assert!(span.first_wave.iter().any(Option::is_some), "group has members");
+        span
+    }
+
+    pub(crate) fn queues(&self) -> impl Iterator<Item = usize> + '_ { (0..3).filter(move |&q| self.first_wave[q].is_some()) }
+
+    pub(crate) fn first(&self, queue: usize) -> SliceId {
+        SliceId {
+            wave: self.first_wave[queue].expect("group does not run on this queue"),
+            queue,
+        }
+    }
+
+    pub(crate) fn last(&self, queue: usize) -> SliceId {
+        SliceId {
+            wave: self.last_wave[queue].expect("group does not run on this queue"),
+            queue,
+        }
+    }
+
+    pub(crate) fn anchor(&self) -> SliceId { self.queues().map(|queue| self.first(queue)).min().expect("group has members") }
+
+    pub(crate) fn start(&self) -> usize { self.first_wave.iter().flatten().copied().min().expect("group has members") }
+
+    pub(crate) fn end(&self) -> usize { self.last_wave.iter().flatten().copied().max().expect("group has members") }
 }
 
 impl Schedule {
-    /// A group's wave span.
-    pub(crate) fn placement(&self, timeline: usize, group: usize) -> Placement {
-        let (first, last) = self.extents[timeline][group];
-        Placement {
-            first,
-            last,
-        }
-    }
-}
-
-impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
-    /// Assigns waves and per-group spans (stage 1 of compilation).
-    pub(crate) fn schedule(&self, timelines: &[Timeline]) -> Schedule {
-        let (batches, task_to_batch) = self.assign_batches(timelines);
-
-        let extents = timelines
-            .iter()
-            .map(|tl| {
-                tl.groups
-                    .iter()
-                    .map(|group| {
-                        let mut first = usize::MAX;
-                        let mut last = 0;
-                        for &m in &group.members {
-                            let b = task_to_batch[m];
-                            first = first.min(b);
-                            last = last.max(b);
-                        }
-                        debug_assert!(first != usize::MAX, "group has members");
-                        (first, last)
-                    })
-                    .collect()
-            })
-            .collect();
+    pub(crate) fn build(timelines: &[Timeline], node_queues: &[QueueType]) -> Schedule {
+        let (batches, task_to_batch) = assign_batches(timelines, node_queues.len());
+        let node_queue: Vec<usize> = node_queues.iter().map(|&queue| queue as usize).collect();
+        let spans = timelines.iter().map(|timeline| timeline.groups.iter().map(|group| GroupSpan::new(&group.members, &task_to_batch, &node_queue)).collect()).collect();
 
         Schedule {
             batches,
-            task_to_batch,
-            extents,
+            spans,
+            node_queue,
         }
     }
 
-    pub(crate) fn assign_batches(&self, timelines: &[Timeline]) -> (Vec<Vec<usize>>, Vec<usize>) {
-        let mut adj_list: Vec<Vec<usize>> = vec![Vec::new(); self.entries.len()];
-        for tl in timelines {
-            for w in tl.groups.windows(2) {
-                for &curr_member in &w[1].members {
-                    for &prev_member in &w[0].members {
-                        adj_list[curr_member].push(prev_member);
-                    }
+    pub(crate) fn span(&self, timeline: usize, group: usize) -> GroupSpan { self.spans[timeline][group] }
+
+    pub(crate) fn queue_of(&self, node: usize) -> usize { self.node_queue[node] }
+
+    pub(crate) fn node_count(&self) -> usize { self.node_queue.len() }
+}
+
+fn assign_batches(timelines: &[Timeline], node_count: usize) -> (Vec<Vec<usize>>, Vec<usize>) {
+    let mut adj_list: Vec<Vec<usize>> = vec![Vec::new(); node_count];
+    for timeline in timelines {
+        for pair in timeline.groups.windows(2) {
+            for &current in &pair[1].members {
+                for &previous in &pair[0].members {
+                    adj_list[current].push(previous);
                 }
             }
         }
-
-        let batches = topological_batches(&adj_list);
-        let mut task_to_batch = vec![0usize; self.entries.len()];
-        for (i, batch) in batches.iter().enumerate() {
-            for &t in batch {
-                task_to_batch[t] = i;
-            }
-        }
-
-        (batches, task_to_batch)
     }
+
+    let batches = topological_batches(&adj_list);
+    let mut task_to_batch = vec![0usize; node_count];
+    for (batch_index, batch) in batches.iter().enumerate() {
+        for &task in batch {
+            task_to_batch[task] = batch_index;
+        }
+    }
+
+    (batches, task_to_batch)
 }
 
 // Kahn's algorithm for topological sort

@@ -3,7 +3,7 @@ mod execute;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use self::compile::{CompiledGraph, NodeDeclaration, RuntimeInfo};
+use self::compile::{CompiledGraph, NodeDeclaration, RuntimeInfo, schedule::Schedule};
 use crate::node::{ExecutionContext, Node, NodeWriter};
 use crate::resource::{Id, ImageViewPool, InnerBuffer, InnerImage};
 use sgpu::{AcquiredImage, Buffer, BufferDescription, Counter, Image, ImageDescription, QueueType, create_buffer, create_image, destroy_buffer, destroy_image};
@@ -174,15 +174,18 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
 
         self.materialize_persistent_images(true);
 
-        let Some(mut compiled) = self.compiled.take() else {
-            return;
+        let (alias, submissions) = match &self.compiled {
+            Some(compiled) => {
+                let alias = self.build_alias_plan(&compiled.timelines, &compiled.schedule);
+                let submissions = self.build_submission_plan(&compiled.timelines, &compiled.schedule, &alias);
+                (alias, submissions)
+            }
+            None => return,
         };
 
-        let alias = self.schedule_aliasing(&compiled.timelines, &compiled.schedule);
-        self.materialize_transients(&alias.groups);
-        let sync = self.sync_plan(&compiled.timelines, &compiled.schedule, &alias);
-
-        compiled.sync = sync;
+        let mut compiled = self.compiled.take().expect("compiled graph checked above");
+        self.materialize_transients(&alias);
+        compiled.submissions = submissions;
         compiled.runtime = RuntimeInfo::new(self.frames_in_flight);
         self.compiled = Some(compiled);
     }
@@ -199,6 +202,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                 let built = (entry.build)(res, &mut w);
                 NodeDeclaration {
                     built,
+                    queue: entry.queue,
                     images: w.image_accesses,
                     buffers: w.buffer_accesses,
                 }
@@ -209,21 +213,22 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         for tl in &timelines {
             tl.validate_present();
         }
-        let schedule = self.schedule(&timelines);
-        let alias = self.schedule_aliasing(&timelines, &schedule);
+        let node_queues: Vec<QueueType> = declared.iter().map(|declaration| declaration.queue).collect();
+        let schedule = Schedule::build(&timelines, &node_queues);
+        let alias = self.build_alias_plan(&timelines, &schedule);
+        let submissions = self.build_submission_plan(&timelines, &schedule, &alias);
 
         sgpu::wait_idle();
         self.materialize_persistent_images(false);
         self.materialize_persistent_buffers();
-        self.materialize_transients(&alias.groups);
-        let sync = self.sync_plan(&timelines, &schedule, &alias);
+        self.materialize_transients(&alias);
 
         self.compiled = Some(CompiledGraph {
             timelines,
             schedule,
             built: declared.into_iter().map(|d| d.built).collect(),
             runtime: RuntimeInfo::new(self.frames_in_flight),
-            sync,
+            submissions,
         });
     }
 

@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use sgpu::{Buffer, Image, MemoryType, PooledBufferDescription, PooledImageDescription, PooledResourceDescription, destroy_buffer, destroy_image};
+use sgpu::{Buffer, BufferDescription, Image, ImageDescription, MemoryType, PooledBufferDescription, PooledImageDescription, PooledResourceDescription, ResourceRequirements, destroy_buffer, destroy_image};
 
 use super::{
     schedule::Schedule,
@@ -12,171 +12,181 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Cycle {
-    Same,
+pub(crate) enum Frame {
+    Current,
     Previous,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Predecessor {
+// The use that must finish before a timeline's first group starts.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PreviousUse {
     pub(crate) timeline: usize,
-    pub(crate) cycle: Cycle,
+    pub(crate) group: usize,
+    pub(crate) frame: Frame,
 }
 
-pub(crate) struct AliasMember {
-    pub(crate) res_index: u32,
-    pub(crate) offset: u64,
-    pub(crate) aliased: bool,
+pub(crate) struct AliasPlan {
+    pub(crate) heaps: Vec<Heap>,
+    // Indexed by timeline.
+    pub(crate) previous_use: Vec<PreviousUse>,
 }
 
-pub(crate) struct AliasGroup {
-    pub(crate) images: Vec<AliasMember>,
-    pub(crate) buffers: Vec<AliasMember>,
+// One heap allocation: all lanes of one memory type.
+pub(crate) struct Heap {
+    pub(crate) members: Vec<HeapMember>,
 }
 
-pub(crate) struct AliasSchedule {
-    pub(crate) groups: Vec<AliasGroup>,
-    predecessors: HashMap<usize, Predecessor>,
-}
-
-impl AliasSchedule {
-    pub(crate) fn predecessor(&self, timeline: usize) -> Predecessor {
-        self.predecessors.get(&timeline).copied().unwrap_or(Predecessor {
-            timeline,
-            cycle: Cycle::Previous,
-        })
-    }
-}
-
-struct Owner {
-    timeline: usize,
-    resource: Resource,
-}
-
-struct Lane {
-    memory_type: MemoryType,
-    owners: Vec<Owner>,
+pub(crate) enum HeapMember {
+    Image {
+        resource: u32,
+        desc: ImageDescription,
+        offset: u64,
+        aliased: bool,
+    },
+    Buffer {
+        resource: u32,
+        desc: BufferDescription,
+        offset: u64,
+    },
 }
 
 struct Life {
     timeline: usize,
     resource: Resource,
+    last_group: usize,
     start: usize,
     end: usize,
 }
 
 impl<'g, R, D> TaskGraph<'g, R, D> {
-    pub(crate) fn schedule_aliasing(&self, timelines: &[Timeline], sched: &Schedule) -> AliasSchedule {
-        let lanes = self.share(timelines, sched);
-        let predecessors = predecessors(&lanes);
-        let groups = self.lay_out(&lanes);
-        AliasSchedule {
-            groups,
-            predecessors,
+    pub(crate) fn build_alias_plan(&self, timelines: &[Timeline], schedule: &Schedule) -> AliasPlan {
+        let mut previous_use = timelines
+            .iter()
+            .enumerate()
+            .map(|(timeline, tl)| PreviousUse {
+                timeline,
+                group: tl.groups.len() - 1,
+                frame: Frame::Previous,
+            })
+            .collect::<Vec<_>>();
+
+        let heaps = self.build_heaps(timelines, schedule, &mut previous_use);
+        AliasPlan {
+            heaps,
+            previous_use,
         }
     }
 
-    fn share(&self, timelines: &[Timeline], sched: &Schedule) -> Vec<Lane> {
-        let mut classes: BTreeMap<usize, (MemoryType, Vec<Life>)> = BTreeMap::new();
-        for (ti, tl) in timelines.iter().enumerate().filter(|(_, tl)| tl.transient) {
+    fn build_heaps(&self, timelines: &[Timeline], schedule: &Schedule, previous_use: &mut [PreviousUse]) -> Vec<Heap> {
+        let mut classes: BTreeMap<usize, Vec<Life>> = BTreeMap::new();
+        for (timeline, tl) in timelines.iter().enumerate().filter(|(_, tl)| tl.transient) {
             assert!(is_write(&tl.groups[0].accesses), "transient resource {:?} must start with a write", tl.resource);
 
             let memory_type = self.transient_memory_type(tl.resource);
-            classes.entry(memory_type as usize).or_insert_with(|| (memory_type, Vec::new())).1.push(Life {
-                timeline: ti,
+            classes.entry(memory_type as usize).or_default().push(Life {
+                timeline,
                 resource: tl.resource,
-                start: sched.placement(ti, 0).start(),
-                end: sched.placement(ti, tl.groups.len() - 1).end(),
+                last_group: tl.groups.len() - 1,
+                start: schedule.span(timeline, 0).start(),
+                end: schedule.span(timeline, tl.groups.len() - 1).end(),
             });
         }
 
-        let mut lanes = Vec::new();
-        for (_, (memory_type, mut lives)) in classes {
+        let mut heaps = Vec::with_capacity(classes.len());
+        for (_, mut lives) in classes {
             lives.sort_by_key(|life| (life.start, life.timeline));
 
-            let mut open: Vec<(usize, Vec<Owner>)> = Vec::new();
+            let mut lanes: Vec<Vec<Life>> = Vec::new();
             for life in lives {
-                let owner = Owner {
-                    timeline: life.timeline,
-                    resource: life.resource,
-                };
-                match open.iter_mut().find(|(end, _)| *end < life.start) {
-                    Some((end, owners)) => {
-                        *end = life.end;
-                        owners.push(owner);
-                    }
-                    None => open.push((life.end, vec![owner])),
+                match lanes.iter_mut().find(|lane| lane.last().expect("lane has owners").end < life.start) {
+                    Some(lane) => lane.push(life),
+                    None => lanes.push(vec![life]),
                 }
             }
-            lanes.extend(open.into_iter().map(|(_, owners)| Lane {
-                memory_type,
-                owners,
-            }));
-        }
-        lanes
-    }
 
-    fn lay_out(&self, lanes: &[Lane]) -> Vec<AliasGroup> {
-        let mut classes: BTreeMap<usize, Vec<&Lane>> = BTreeMap::new();
-        for lane in lanes {
-            classes.entry(lane.memory_type as usize).or_default().push(lane);
-        }
-
-        let mut groups = Vec::with_capacity(classes.len());
-        for (_, lanes) in classes {
+            let mut members = Vec::new();
             let mut watermark = 0u64;
-            let mut images = Vec::new();
-            let mut buffers = Vec::new();
-
             for lane in lanes {
-                let reqs: Vec<sgpu::ResourceRequirements> = lane.owners.iter().map(|owner| self.requirements(owner.resource)).collect();
-                let size = reqs.iter().map(|r| r.size).max().expect("lane has owners");
-                let lane_alignment = reqs.iter().map(|r| r.alignment).max().expect("lane has owners");
+                let image_count = lane.iter().filter(|life| matches!(life.resource, Resource::Image(_))).count();
+                let aliased = image_count >= 2;
+                let requirements: Vec<ResourceRequirements> = lane.iter().map(|life| self.requirements(life.resource, aliased)).collect();
+                let size = requirements.iter().map(|requirements| requirements.size).max().expect("lane has owners");
+                let alignment = requirements.iter().map(|requirements| requirements.alignment).max().expect("lane has owners");
 
-                let offset = watermark.div_ceil(lane_alignment) * lane_alignment;
+                let offset = watermark.div_ceil(alignment) * alignment;
                 watermark = offset + size;
 
-                let image_owners = lane.owners.iter().filter(|owner| matches!(owner.resource, Resource::Image(_))).count();
-                for owner in &lane.owners {
-                    match owner.resource {
-                        Resource::Image(i) => images.push(AliasMember {
-                            res_index: i,
-                            offset,
-                            aliased: image_owners >= 2,
-                        }),
-                        Resource::Buffer(b) => buffers.push(AliasMember {
-                            res_index: b,
-                            offset,
-                            aliased: false,
-                        }),
+                for (index, life) in lane.iter().enumerate() {
+                    let previous = if index == 0 {
+                        lane.last().expect("lane has owners")
+                    } else {
+                        &lane[index - 1]
+                    };
+                    previous_use[life.timeline] = PreviousUse {
+                        timeline: previous.timeline,
+                        group: previous.last_group,
+                        frame: if index == 0 {
+                            Frame::Previous
+                        } else {
+                            Frame::Current
+                        },
+                    };
+
+                    match life.resource {
+                        Resource::Image(resource) => {
+                            let InnerImage::Transient {
+                                image_desc, ..
+                            } = &self.images[resource as usize]
+                            else {
+                                unreachable!("lane owner is transient")
+                            };
+                            members.push(HeapMember::Image {
+                                resource,
+                                desc: *image_desc,
+                                offset,
+                                aliased,
+                            });
+                        }
+                        Resource::Buffer(resource) => {
+                            let InnerBuffer::Transient {
+                                buffer_desc,
+                                ..
+                            } = &self.buffers[resource as usize]
+                            else {
+                                unreachable!("lane owner is transient")
+                            };
+                            members.push(HeapMember::Buffer {
+                                resource,
+                                desc: *buffer_desc,
+                                offset,
+                            });
+                        }
                     }
                 }
             }
 
-            groups.push(AliasGroup {
-                images,
-                buffers,
-            });
+            heaps.push(Heap { members });
         }
-        groups
+
+        heaps
     }
 
     fn transient_memory_type(&self, resource: Resource) -> MemoryType {
         match resource {
-            Resource::Image(i) => {
+            Resource::Image(resource) => {
                 let InnerImage::Transient {
                     image_desc, ..
-                } = &self.images[i as usize]
+                } = &self.images[resource as usize]
                 else {
                     unreachable!("timeline marked transient")
                 };
                 image_desc.memory_type
             }
-            Resource::Buffer(b) => {
+            Resource::Buffer(resource) => {
                 let InnerBuffer::Transient {
                     buffer_desc,
                     ..
-                } = &self.buffers[b as usize]
+                } = &self.buffers[resource as usize]
                 else {
                     unreachable!("timeline marked transient")
                 };
@@ -185,22 +195,22 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
         }
     }
 
-    fn requirements(&self, resource: Resource) -> sgpu::ResourceRequirements {
+    fn requirements(&self, resource: Resource, aliased: bool) -> ResourceRequirements {
         match resource {
-            Resource::Image(i) => {
+            Resource::Image(resource) => {
                 let InnerImage::Transient {
                     image_desc, ..
-                } = &self.images[i as usize]
+                } = &self.images[resource as usize]
                 else {
                     unreachable!("lane owner is transient")
                 };
-                sgpu::image_requirements(image_desc)
+                sgpu::image_requirements(image_desc, aliased)
             }
-            Resource::Buffer(b) => {
+            Resource::Buffer(resource) => {
                 let InnerBuffer::Transient {
                     buffer_desc,
                     ..
-                } = &self.buffers[b as usize]
+                } = &self.buffers[resource as usize]
                 else {
                     unreachable!("lane owner is transient")
                 };
@@ -209,9 +219,9 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
         }
     }
 
-    /// Rebuild all transient instances from the alias layout.
-    /// The caller must have waited for the GPU before calling.
-    pub(crate) fn materialize_transients(&mut self, groups: &[AliasGroup]) {
+    // Rebuild all transient instances from the alias plan.
+    // The caller must have waited for the GPU before calling.
+    pub(crate) fn materialize_transients(&mut self, plan: &AliasPlan) {
         let slots = self.frames_in_flight;
 
         let old_images: Vec<(usize, Vec<Image>)> = self
@@ -249,44 +259,42 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
             }
         }
 
-        for group in groups {
-            let mut image_inputs: Vec<PooledImageDescription> = Vec::with_capacity(group.images.len());
-            let mut image_indices: Vec<u32> = Vec::with_capacity(group.images.len());
-            for member in &group.images {
-                let InnerImage::Transient {
-                    image_desc, ..
-                } = &self.images[member.res_index as usize]
-                else {
-                    unreachable!("alias group member is transient");
-                };
-                image_inputs.push(PooledImageDescription {
-                    desc: *image_desc,
-                    offset: member.offset,
-                    aliased: member.aliased,
-                });
-                image_indices.push(member.res_index);
-            }
+        for heap in &plan.heaps {
+            let mut image_inputs: Vec<PooledImageDescription> = Vec::new();
+            let mut image_racks: Vec<u32> = Vec::new();
+            let mut buffer_inputs: Vec<PooledBufferDescription> = Vec::new();
+            let mut buffer_racks: Vec<u32> = Vec::new();
 
-            let mut buffer_inputs: Vec<PooledBufferDescription> = Vec::with_capacity(group.buffers.len());
-            let mut buffer_indices: Vec<u32> = Vec::with_capacity(group.buffers.len());
-            for member in &group.buffers {
-                let InnerBuffer::Transient {
-                    buffer_desc,
-                    ..
-                } = &self.buffers[member.res_index as usize]
-                else {
-                    unreachable!("alias group member is transient");
-                };
-                buffer_inputs.push(PooledBufferDescription {
-                    desc: *buffer_desc,
-                    offset: member.offset,
-                });
-                buffer_indices.push(member.res_index);
+            for member in &heap.members {
+                match member {
+                    HeapMember::Image {
+                        resource,
+                        desc,
+                        offset,
+                        aliased,
+                    } => {
+                        image_inputs.push(PooledImageDescription {
+                            desc: *desc,
+                            offset: *offset,
+                            aliased: *aliased,
+                        });
+                        image_racks.push(*resource);
+                    }
+                    HeapMember::Buffer {
+                        resource,
+                        desc,
+                        offset,
+                    } => {
+                        buffer_inputs.push(PooledBufferDescription {
+                            desc: *desc,
+                            offset: *offset,
+                        });
+                        buffer_racks.push(*resource);
+                    }
+                }
             }
 
             for slot in 0..slots {
-                // SAFETY: lane offsets are non-overlapping unless their
-                // lifetimes are ordered by the alias predecessor edges.
                 let (slot_images, slot_buffers) = unsafe {
                     sgpu::create_pooled_resources(&PooledResourceDescription {
                         images: &image_inputs,
@@ -294,14 +302,14 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
                     })
                 };
 
-                for (member_index, rack) in image_indices.iter().enumerate() {
+                for (member_index, rack) in image_racks.iter().enumerate() {
                     let InnerImage::Transient { images, .. } = &mut self.images[*rack as usize] else {
                         unreachable!("transient member above")
                     };
                     debug_assert_eq!(images.len(), slot, "rack {rack} instance sets drifted between slots");
                     images.push(slot_images[member_index]);
                 }
-                for (member_index, rack) in buffer_indices.iter().enumerate() {
+                for (member_index, rack) in buffer_racks.iter().enumerate() {
                     let InnerBuffer::Transient {
                         buffers, ..
                     } = &mut self.buffers[*rack as usize]
@@ -313,31 +321,8 @@ impl<'g, R, D> TaskGraph<'g, R, D> {
                 }
             }
 
-            debug_assert!(image_indices.iter().all(|&rack| { matches!(&self.images[rack as usize], InnerImage::Transient { images, .. } if images.len() == slots) }));
-            debug_assert!(buffer_indices.iter().all(|&rack| { matches!(&self.buffers[rack as usize], InnerBuffer::Transient { buffers, .. } if buffers.len() == slots) }));
+            debug_assert!(image_racks.iter().all(|&rack| { matches!(&self.images[rack as usize], InnerImage::Transient { images, .. } if images.len() == slots) }));
+            debug_assert!(buffer_racks.iter().all(|&rack| { matches!(&self.buffers[rack as usize], InnerBuffer::Transient { buffers, .. } if buffers.len() == slots) }));
         }
     }
-}
-
-fn predecessors(lanes: &[Lane]) -> HashMap<usize, Predecessor> {
-    let mut predecessors = HashMap::new();
-    for lane in lanes.iter().filter(|lane| lane.owners.len() >= 2) {
-        for pair in lane.owners.windows(2) {
-            predecessors.insert(
-                pair[1].timeline,
-                Predecessor {
-                    timeline: pair[0].timeline,
-                    cycle: Cycle::Same,
-                },
-            );
-        }
-        predecessors.insert(
-            lane.owners[0].timeline,
-            Predecessor {
-                timeline: lane.owners[lane.owners.len() - 1].timeline,
-                cycle: Cycle::Previous,
-            },
-        );
-    }
-    predecessors
 }

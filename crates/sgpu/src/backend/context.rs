@@ -118,8 +118,8 @@ impl Context {
         image
     }
 
-    pub(crate) fn image_requirements(&self, desc: &ImageDescription) -> ResourceRequirements {
-        let requirements = self.device.image_requirements(desc);
+    pub(crate) fn image_requirements(&self, desc: &ImageDescription, aliased: bool) -> ResourceRequirements {
+        let requirements = self.device.image_requirements(desc, aliased);
         ResourceRequirements {
             size: requirements.size,
             alignment: requirements.alignment,
@@ -138,18 +138,16 @@ impl Context {
 
     /// Creates one transient heap and binds a pooled instance per member at
     /// its scheduled offset. The heap's location, size, alignment and
-    /// memory-type bits are derived from the members themselves — the
-    /// object-less probes are description-deterministic, so the
-    /// re-derivation reproduces the sweep's aggregates exactly. One heap +
-    /// one instance set per call; per-slot heaps come from calling it once
-    /// per slot.
+    /// memory-type bits are re-derived from each member's exact create info
+    /// (including the image alias flag). One heap + one instance set per
+    /// call; per-slot heaps come from calling it once per slot.
     pub(crate) fn create_pooled_resources(&self, plan: &PooledResourceDescription<'_>) -> (Vec<Image>, Vec<Buffer>) {
         let mut memory_type: Option<MemoryType> = None;
         let mut alignment = 1u64;
         let mut memory_type_bits = u32::MAX;
         let mut end = 0u64;
 
-        let members = plan.images.iter().map(|member| (member.desc.memory_type, self.device.image_requirements(&member.desc), member.offset)).chain(plan.buffers.iter().map(|member| (member.desc.memory_type, self.device.buffer_requirements(&member.desc), member.offset)));
+        let members = plan.images.iter().map(|member| (member.desc.memory_type, self.device.image_requirements(&member.desc, member.aliased), member.offset)).chain(plan.buffers.iter().map(|member| (member.desc.memory_type, self.device.buffer_requirements(&member.desc), member.offset)));
         for (member_type, requirements, offset) in members {
             end = (offset + requirements.size).max(end);
             alignment = alignment.max(requirements.alignment);
@@ -163,8 +161,9 @@ impl Context {
         let Some(memory_type) = memory_type else {
             return (Vec::new(), Vec::new());
         };
+        assert_ne!(memory_type_bits, 0, "pooled resources have no common memory type");
 
-        // The sweep's final claim end, rounded up to the aggregate alignment.
+        // Heap size rounded up to the aggregate alignment.
         let heap_size = end.div_ceil(alignment).max(1) * alignment;
 
         let linear = plan.images.is_empty();

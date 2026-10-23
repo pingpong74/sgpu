@@ -454,8 +454,8 @@ impl Device {
         }
     }
 
-    pub(crate) fn image_requirements(&self, desc: &ImageDescription) -> vk::MemoryRequirements {
-        let create_info = self.image_create_info(desc, false);
+    pub(crate) fn image_requirements(&self, desc: &ImageDescription, aliased: bool) -> vk::MemoryRequirements {
+        let create_info = self.image_create_info(desc, aliased);
         let info = vk::DeviceImageMemoryRequirements::default().create_info(&create_info);
         let mut requirements = vk::MemoryRequirements2::default();
         unsafe { self.handle.get_device_image_memory_requirements(&info, &mut requirements) };

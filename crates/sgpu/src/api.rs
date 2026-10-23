@@ -57,7 +57,7 @@ pub fn destroy_buffer(buffer: Buffer) { crate::CONTEXT.get().expect("Not initial
 
 pub fn create_image(image_desc: &ImageDescription) -> Image { crate::CONTEXT.get().expect("Not initialized").create_image(image_desc) }
 
-pub fn image_requirements(image_desc: &ImageDescription) -> ResourceRequirements { crate::CONTEXT.get().expect("Not initialized").image_requirements(image_desc) }
+pub fn image_requirements(image_desc: &ImageDescription, aliased: bool) -> ResourceRequirements { crate::CONTEXT.get().expect("Not initialized").image_requirements(image_desc, aliased) }
 
 pub fn buffer_requirements(buffer_desc: &BufferDescription) -> ResourceRequirements { crate::CONTEXT.get().expect("Not initialized").buffer_requirements(buffer_desc) }
 
