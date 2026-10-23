@@ -243,30 +243,38 @@ impl Application for App {
         });
 
         let mut graph = TaskGraph::new();
+        graph.set_frames_in_flight(swapchain.frame_count());
+
         let res = Res {
             swapchain: graph.add_image(Image::default()),
-            hdr: graph.create_resizable_image(&ImageDescription {
-                usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
-                format: Format::Rgba16Float,
-                extent: Extent3D {
-                    width: size.width,
-                    height: size.height,
-                    depth: 1,
+            hdr: graph.create_persistent_image(
+                &ImageDescription {
+                    usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
+                    format: Format::Rgba16Float,
+                    extent: Extent3D {
+                        width: size.width,
+                        height: size.height,
+                        depth: 1,
+                    },
+                    memory_type: MemoryType::DeviceLocal,
+                    ..Default::default()
                 },
-                memory_type: MemoryType::DeviceLocal,
-                ..Default::default()
-            }),
-            depth: graph.create_resizable_image(&ImageDescription {
-                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
-                format: Format::D32Float,
-                extent: Extent3D {
-                    width: size.width,
-                    height: size.height,
-                    depth: 1,
+                true,
+            ),
+            depth: graph.create_persistent_image(
+                &ImageDescription {
+                    usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                    format: Format::D32Float,
+                    extent: Extent3D {
+                        width: size.width,
+                        height: size.height,
+                        depth: 1,
+                    },
+                    memory_type: MemoryType::DeviceLocal,
+                    ..Default::default()
                 },
-                memory_type: MemoryType::DeviceLocal,
-                ..Default::default()
-            }),
+                true,
+            ),
         };
         graph.add_node::<Scene>(SceneConfig {
             pipeline: scene_pipeline,
@@ -277,7 +285,8 @@ impl Application for App {
             pipeline: post_pipeline,
             sampler,
         });
-        graph.present_transition(res.swapchain);
+        graph.present_target(res.swapchain);
+        graph.compile(&res);
 
         App {
             swapchain,
@@ -300,10 +309,10 @@ impl Application for App {
         let mvp = projection * view * rotation;
 
         let acquired = self.swapchain.acquire_image();
+
         self.graph.set_image(self.res.swapchain, acquired.image());
 
         let counter = self.graph.execute_with_swapchain(
-            &self.res,
             &Frame {
                 extent: Extent2D {
                     width: size.width,

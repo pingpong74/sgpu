@@ -1,14 +1,12 @@
 mod compile;
 mod execute;
-mod timeline;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use sgpu::{AcquiredImage, Buffer, Counter, Image, ImageDescription, QueueType, destroy_image};
-
-use self::compile::{CompiledGraph, NodeDeclaration};
+use self::compile::{CompiledGraph, NodeDeclaration, RuntimeInfo};
 use crate::node::{ExecutionContext, Node, NodeWriter};
-use crate::resource::{Id, ImageViewPool, InnerImage};
+use crate::resource::{Id, ImageViewPool, InnerBuffer, InnerImage};
+use sgpu::{AcquiredImage, Buffer, BufferDescription, Counter, Image, ImageDescription, QueueType, create_buffer, create_image, destroy_buffer, destroy_image};
 
 /// A graph consisting of Node
 /// Each Node points to some work on the GPU
@@ -16,13 +14,12 @@ use crate::resource::{Id, ImageViewPool, InnerImage};
 pub struct TaskGraph<'g, R, D> {
     graph_id: u32,
     images: Vec<InnerImage>,
-    buffers: Vec<Buffer>,
+    buffers: Vec<InnerBuffer>,
     entries: Vec<NodeEntry<'g, R, D>>,
-    present_id: Option<Id<Image>>,
+    present_node: Option<usize>,
     compiled: Option<CompiledGraph<'g, R, D>>,
     views: ImageViewPool,
-    executed_once: bool,
-    prev_counters: [Option<Counter>; 3],
+    frames_in_flight: usize,
 }
 
 impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
@@ -33,117 +30,167 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             images: Vec::new(),
             buffers: Vec::new(),
             entries: Vec::new(),
-            present_id: None,
+            present_node: None,
             compiled: None,
             views: ImageViewPool::default(),
-            executed_once: false,
-            prev_counters: [None; 3],
+            frames_in_flight: 0,
         }
+    }
+
+    pub fn set_frames_in_flight(&mut self, f: usize) {
+        assert!(f >= 1, "frame slot count must be at least 1");
+        self.frames_in_flight = f;
+        self.invalidate();
     }
 
     /// Add an external Image
     pub fn add_image(&mut self, image: Image) -> Id<Image> {
-        self.compiled = None;
+        self.invalidate();
         self.push_image(InnerImage::External(image))
-    }
-
-    /// Create an Image owned by the graph, kept at a fixed size and destroyed
-    /// with the graph
-    pub fn create_image(&mut self, desc: &ImageDescription) -> Id<Image> {
-        self.compiled = None;
-        self.push_image(InnerImage::Persistent {
-            image_desc: *desc,
-            image: sgpu::create_image(desc),
-            resizable: false,
-        })
-    }
-
-    /// Create an Image owned by the graph that is recreated by
-    /// `TaskGraph::resize` and destroyed with the graph
-    pub fn create_resizable_image(&mut self, desc: &ImageDescription) -> Id<Image> {
-        self.compiled = None;
-        self.push_image(InnerImage::Persistent {
-            image_desc: *desc,
-            image: sgpu::create_image(desc),
-            resizable: true,
-        })
     }
 
     /// Add an external Buffer
     pub fn add_buffer(&mut self, buffer: Buffer) -> Id<Buffer> {
-        self.compiled = None;
+        self.invalidate();
         let id = Id::new(self.buffers.len() as u32, self.graph_id);
-        self.buffers.push(buffer);
+        self.buffers.push(InnerBuffer::External(buffer));
+        id
+    }
+
+    /// Create persistent images owned by the graph.
+    /// If `resize` is true, the image follows `resize()` and its contents are discarded.
+    pub fn create_persistent_image(&mut self, desc: &ImageDescription, resize: bool) -> Id<Image> {
+        self.invalidate();
+        self.push_image(InnerImage::Persistent {
+            image_desc: *desc,
+            images: Vec::new(),
+            resize,
+        })
+    }
+
+    /// Create persistent buffers owned by the graph
+    /// Not used for aliasing
+    pub fn create_persistent_buffer(&mut self, desc: &BufferDescription) -> Id<Buffer> {
+        self.invalidate();
+        let id = Id::new(self.buffers.len() as u32, self.graph_id);
+        self.buffers.push(InnerBuffer::Persistent {
+            buffer_desc: *desc,
+            buffers: Vec::new(),
+        });
+        id
+    }
+
+    /// Create a transient image owned by the graph
+    /// Used for aliasing
+    /// resize: the image's extent tracks screen size on resize()
+    pub fn create_transient_image(&mut self, desc: &ImageDescription, resize: bool) -> Id<Image> {
+        self.invalidate();
+        self.push_image(InnerImage::Transient {
+            image_desc: *desc,
+            images: Vec::new(),
+            resize,
+        })
+    }
+
+    /// Create a transient buffer owned by the graph
+    /// Used for aliasing
+    pub fn create_transient_buffer(&mut self, desc: &BufferDescription) -> Id<Buffer> {
+        self.invalidate();
+        let id = Id::new(self.buffers.len() as u32, self.graph_id);
+        self.buffers.push(InnerBuffer::Transient {
+            buffer_desc: *desc,
+            buffers: Vec::new(),
+        });
         id
     }
 
     /// Add a Node
     pub fn add_node<N: Node<R, D> + 'g>(&mut self, config: N::Config) {
-        self.compiled = None;
+        self.invalidate();
         self.entries.push(NodeEntry {
             queue: N::QUEUE,
             build: Box::new(move |res, w| Box::new(N::declare(res, &config, w))),
         });
     }
 
-    /// This transitions the given Image to Presentation Optimal Image Layout
-    pub fn present_transition(&mut self, id: Id<Image>) {
-        self.get_image_index(id);
-        self.compiled = None;
-        self.present_id = Some(id);
+    /// This marks the external image the app presents with
+    pub fn present_target(&mut self, id: Id<Image>) {
+        let index = self.get_image_index(id) as usize;
+        if self.images[index].is_graph_owned() {
+            panic!("only external images may be present targets ({id:?})");
+        }
+
+        assert!(self.present_node.is_none(), "the graph already has a present target");
+        assert!(self.compiled.is_none(), "present target must be marked before compiling; rebuild the graph or mark it at declare time");
+
+        self.present_node = Some(self.entries.len());
+        self.entries.push(NodeEntry {
+            queue: <crate::node::PresentNode as Node<R, D>>::QUEUE,
+            build: Box::new(move |res, w| Box::new(<crate::node::PresentNode as Node<R, D>>::declare(res, &id, w))),
+        });
     }
 
-    /// Rebind an external image (e.g. the next swapchain image). Graph-owned
-    /// images cannot be rebound.
+    /// Rebind an external image
     pub fn set_image(&mut self, id: Id<Image>, image: Image) {
         let index = self.get_image_index(id) as usize;
-        match &mut self.images[index] {
-            InnerImage::External(current) => *current = image,
-            InnerImage::Persistent { .. } => panic!("image {id:?} is owned by the graph and cannot be rebound"),
+        match self.images[index] {
+            InnerImage::External(_) => self.images[index] = InnerImage::External(image),
+            _ => panic!("image {id:?} is not a plain external image and cannot be rebound"),
         }
     }
 
-    /// This updates the internal `sgpu::Buffer`
+    /// Rebind an external buffer
     pub fn set_buffer(&mut self, id: Id<Buffer>, buffer: Buffer) {
         let index = self.get_buffer_index(id) as usize;
-        self.buffers[index] = buffer;
+        match self.buffers[index] {
+            InnerBuffer::External(_) => self.buffers[index] = InnerBuffer::External(buffer),
+            _ => panic!("buffer {id:?} is not a plain external buffer and cannot be rebound"),
+        }
     }
 
+    /// Resize the resizable images and rebuild the affected resources and plan.
     pub fn resize(&mut self, width: u32, height: u32) {
-        for (i, slot) in self.images.iter_mut().enumerate() {
-            if let InnerImage::Persistent {
-                resizable: true,
-                ..
-            } = slot
-            {
-                self.views.destroy_slot(i as u32);
+        assert!(self.frames_in_flight > 0, "set_frames_in_flight must be called before resize");
+        sgpu::wait_idle();
+
+        for img in &mut self.images {
+            match img {
+                InnerImage::Persistent {
+                    image_desc,
+                    resize: true,
+                    ..
+                }
+                | InnerImage::Transient {
+                    image_desc,
+                    resize: true,
+                    ..
+                } => {
+                    image_desc.extent.width = width;
+                    image_desc.extent.height = height;
+                }
+                _ => {}
             }
         }
-        self.views.drain();
-        for slot in &mut self.images {
-            if let InnerImage::Persistent {
-                image_desc,
-                image,
-                resizable: true,
-            } = slot
-            {
-                destroy_image(*image);
-                image_desc.extent.width = width;
-                image_desc.extent.height = height;
-                *image = sgpu::create_image(image_desc);
-            }
-        }
-        self.reset_steady_state();
+
+        self.materialize_persistent_images(true);
+
+        let Some(mut compiled) = self.compiled.take() else {
+            return;
+        };
+
+        let alias = self.schedule_aliasing(&compiled.timelines, &compiled.schedule);
+        self.materialize_transients(&alias.groups);
+        let sync = self.sync_plan(&compiled.timelines, &compiled.schedule, &alias);
+
+        compiled.sync = sync;
+        compiled.runtime = RuntimeInfo::new(self.frames_in_flight);
+        self.compiled = Some(compiled);
     }
 
-    /// Resets the execution of the graph, Used for resizing
-    pub fn reset_steady_state(&mut self) {
-        self.executed_once = false;
-        self.prev_counters = [None; 3];
-    }
-
-    /// Builds the Task graph
+    /// Builds the task graph.
     pub fn compile(&mut self, res: &R) {
+        assert!(self.frames_in_flight > 0, "set_frames_in_flight must be called before compile");
+
         let declared = self
             .entries
             .iter()
@@ -158,35 +205,106 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             })
             .collect::<Vec<_>>();
 
-        let mut timelines = self.build_timelines(&declared);
-        let present = self.append_present(&mut timelines);
-        let adj = self.adj_list(&timelines, present);
-        let (batches, task_to_batch) = self.assign_batches(&mut timelines, &adj, present);
-        let mut queue_batches = self.queue_batches(&timelines, &batches, &task_to_batch, present);
-        self.derive_sync(&timelines, &task_to_batch, &mut queue_batches);
+        let timelines = self.build_timelines(&declared);
+        for tl in &timelines {
+            tl.validate_present();
+        }
+        let schedule = self.schedule(&timelines);
+        let alias = self.schedule_aliasing(&timelines, &schedule);
+
+        sgpu::wait_idle();
+        self.materialize_persistent_images(false);
+        self.materialize_persistent_buffers();
+        self.materialize_transients(&alias.groups);
+        let sync = self.sync_plan(&timelines, &schedule, &alias);
 
         self.compiled = Some(CompiledGraph {
-            batches: queue_batches,
+            timelines,
+            schedule,
             built: declared.into_iter().map(|d| d.built).collect(),
-            present: present.is_some(),
+            runtime: RuntimeInfo::new(self.frames_in_flight),
+            sync,
         });
     }
 
-    /// Execute the `TaskGraph`
-    pub fn execute(&mut self, res: &R, data: &D) -> Counter {
-        if self.compiled.is_none() {
-            self.compile(res);
+    /// Execute this taskgraph, requires self.compile first
+    pub fn execute(&mut self, data: &D) -> Counter { self.run(None, data) }
+
+    /// Execute this taskgraph on the swapchain's frame timeline
+    pub fn execute_with_swapchain(&mut self, data: &D, acquired: &AcquiredImage) -> Counter { self.run(Some(acquired), data) }
+
+    fn materialize_persistent_images(&mut self, recreate_resize: bool) {
+        let slots = self.frames_in_flight;
+
+        let mut old_images: Vec<(usize, Vec<Image>)> = Vec::new();
+        for (index, rack) in self.images.iter_mut().enumerate() {
+            if let InnerImage::Persistent {
+                images,
+                resize,
+                ..
+            } = rack
+                && (images.len() != slots || (recreate_resize && *resize))
+            {
+                old_images.push((index, std::mem::take(images)));
+            }
         }
-        self.run(None, data)
+
+        for (index, images) in old_images {
+            if images.is_empty() {
+                continue;
+            }
+            self.views.destroy_slot(index as u32);
+            for image in images {
+                destroy_image(image);
+            }
+        }
+
+        for rack in &mut self.images {
+            if let InnerImage::Persistent {
+                image_desc,
+                images,
+                ..
+            } = rack
+                && images.is_empty()
+            {
+                *images = (0..slots).map(|_| create_image(image_desc)).collect();
+            }
+        }
     }
 
-    /// Execute the `TaskGraph`, but waits for the swapchain image to be accquired
-    pub fn execute_with_swapchain(&mut self, res: &R, data: &D, acquired: &AcquiredImage) -> Counter {
-        if self.compiled.is_none() {
-            self.compile(res);
+    fn materialize_persistent_buffers(&mut self) {
+        let slots = self.frames_in_flight;
+
+        let mut old_buffers: Vec<Vec<Buffer>> = Vec::new();
+        for buffer in &mut self.buffers {
+            if let InnerBuffer::Persistent {
+                buffers, ..
+            } = buffer
+                && buffers.len() != slots
+            {
+                old_buffers.push(std::mem::take(buffers));
+            }
         }
-        self.run(Some(acquired), data)
+
+        for buffers in old_buffers {
+            for buffer in buffers {
+                destroy_buffer(buffer);
+            }
+        }
+
+        for rack in &mut self.buffers {
+            if let InnerBuffer::Persistent {
+                buffer_desc,
+                buffers,
+            } = rack
+                && buffers.is_empty()
+            {
+                *buffers = (0..slots).map(|_| create_buffer(buffer_desc)).collect();
+            }
+        }
     }
+
+    fn invalidate(&mut self) { self.compiled = None; }
 
     fn push_image(&mut self, image: InnerImage) -> Id<Image> {
         let id = Id::new(self.images.len() as u32, self.graph_id);
@@ -201,16 +319,33 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
 
 impl<'g, R, D> Drop for TaskGraph<'g, R, D> {
     fn drop(&mut self) {
-        self.views.destory_all();
-        for slot in &self.images {
-            if let InnerImage::Persistent { image, .. } = slot {
-                destroy_image(*image);
+        sgpu::wait_idle();
+        self.views.destroy_all();
+        for rack in &self.images {
+            match rack {
+                InnerImage::Persistent { images, .. } | InnerImage::Transient { images, .. } => {
+                    images.iter().for_each(|img| destroy_image(*img));
+                }
+                _ => {}
+            }
+        }
+        for rack in self.buffers.iter() {
+            match rack {
+                InnerBuffer::Persistent {
+                    buffers, ..
+                }
+                | InnerBuffer::Transient {
+                    buffers, ..
+                } => {
+                    buffers.iter().for_each(|buffer| destroy_buffer(*buffer));
+                }
+                _ => {}
             }
         }
     }
 }
 
-trait ErasedNode<R, D> {
+pub(crate) trait ErasedNode<R, D> {
     fn execute(&self, data: &D, ctx: &mut ExecutionContext<'_>);
 }
 

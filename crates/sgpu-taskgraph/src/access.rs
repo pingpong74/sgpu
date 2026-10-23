@@ -107,3 +107,11 @@ marker! {
 marker! {
     buffer IndirectRead = IndirectBuffer
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Present;
+impl Access for Present {
+    const ACCESS: AccessType = AccessType::Present;
+    type U = Read;
+}
+impl ImageAccess for Present {}

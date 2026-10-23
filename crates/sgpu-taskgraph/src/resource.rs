@@ -1,7 +1,7 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use sgpu::{Image, ImageDescription, ImageView, ImageViewDescription, destroy_image_view};
+use sgpu::{Buffer, BufferDescription, Image, ImageDescription, ImageView, ImageViewDescription, destroy_image_view};
 use smallvec::SmallVec;
 
 use crate::access::{BufferAccess, ImageAccess};
@@ -74,26 +74,6 @@ impl<A: BufferAccess> PassBuffer<A> {
     }
 }
 
-/// Who owns an image registered with the graph
-pub(crate) enum InnerImage {
-    /// User owned image, graph just borrows the handle
-    External(Image),
-    /// Created and owned by the graph
-    Persistent {
-        image_desc: ImageDescription,
-        image: Image,
-        resizable: bool,
-    },
-}
-
-impl InnerImage {
-    pub(crate) fn image(&self) -> Image {
-        match self {
-            Self::External(image) | Self::Persistent { image, .. } => *image,
-        }
-    }
-}
-
 /// Graph image view with its Access Type
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct PassView<A: ImageAccess> {
@@ -112,6 +92,85 @@ impl<A: ImageAccess> PassView<A> {
             _m: PhantomData,
         }
     }
+}
+
+pub(crate) enum InnerImage {
+    //External Image supplied by the user
+    External(Image),
+    // Graph created persistent image
+    // 1 image per frame in flight
+    Persistent {
+        image_desc: ImageDescription,
+        images: Vec<Image>,
+        resize: bool,
+    },
+    // Graph created transient image
+    // 1 image per frame in flight
+    // The memory of the image might be shared with outher resources
+    // Or, Image with aliasing
+    Transient {
+        image_desc: ImageDescription,
+        images: Vec<Image>,
+        resize: bool,
+    },
+}
+
+pub(crate) enum InnerBuffer {
+    //External Buffer supplied by the user
+    External(Buffer),
+    // Graph created persistent buffer
+    // 1 image per frame in flight
+    Persistent {
+        buffer_desc: BufferDescription,
+        buffers: Vec<Buffer>,
+    },
+    // Graph created transient buffer
+    // 1 image per frame in flight
+    // The memory of the image might be shared with outher resources
+    // Or, buffer with aliasing
+    Transient {
+        buffer_desc: BufferDescription,
+        buffers: Vec<Buffer>,
+    },
+}
+
+impl InnerBuffer {
+    // Get underlying buffer at a given frame
+    pub(crate) fn buffer_at(&self, frame_index: usize) -> Buffer {
+        match self {
+            Self::External(buffer) => *buffer,
+            Self::Persistent {
+                buffers, ..
+            }
+            | Self::Transient {
+                buffers, ..
+            } => *buffers.get(frame_index).unwrap_or_else(|| panic!("slotted buffer rack has no instance for slot {frame_index}")),
+        }
+    }
+
+    pub(crate) fn is_graph_owned(&self) -> bool { matches!(self, Self::Persistent { .. } | Self::Transient { .. }) }
+
+    pub(crate) fn is_transient(&self) -> bool { matches!(self, Self::Transient { .. }) }
+}
+
+impl InnerImage {
+    pub(crate) fn image_at(&self, frame_index: usize) -> Image {
+        match self {
+            Self::External(image) => *image,
+            Self::Persistent { images, .. } | Self::Transient { images, .. } => *images.get(frame_index).unwrap_or_else(|| panic!("slotted rack has no instance for slot {frame_index}")),
+        }
+    }
+
+    pub(crate) fn instances(&self) -> Box<dyn Iterator<Item = Image> + '_> {
+        match self {
+            Self::External(image) => Box::new(std::iter::once(*image)),
+            Self::Persistent { images, .. } | Self::Transient { images, .. } => Box::new(images.iter().copied()),
+        }
+    }
+
+    pub(crate) fn is_graph_owned(&self) -> bool { matches!(self, Self::Persistent { .. } | Self::Transient { .. }) }
+
+    pub(crate) fn is_transient(&self) -> bool { matches!(self, Self::Transient { .. }) }
 }
 
 const MAX_VIEWS_PER_SPEC: usize = 8;
@@ -150,20 +209,21 @@ impl ImageViewPool {
 
     pub(crate) fn refresh(&mut self, images: &[InnerImage]) {
         for spec in &mut self.specs {
-            let image = images[spec.image_id as usize].image();
-            if image == Image::default() {
-                continue;
-            }
-            if spec.entries.iter().any(|e| e.image == image) {
-                continue;
-            }
-            let evicted = (spec.entries.len() == MAX_VIEWS_PER_SPEC).then(|| spec.entries.remove(0).view);
-            spec.entries.push(ViewEntry {
-                image,
-                view: image.create_view(&spec.image_view_desc),
-            });
-            if let Some(view) = evicted {
-                self.retired.push(view);
+            for image in images[spec.image_id as usize].instances() {
+                if image == Image::default() {
+                    continue;
+                }
+                if spec.entries.iter().any(|e| e.image == image) {
+                    continue;
+                }
+                let evicted = (spec.entries.len() == MAX_VIEWS_PER_SPEC).then(|| spec.entries.remove(0).view);
+                spec.entries.push(ViewEntry {
+                    image,
+                    view: image.create_view(&spec.image_view_desc),
+                });
+                if let Some(view) = evicted {
+                    self.retired.push(view);
+                }
             }
         }
         if self.retired.len() >= RETIRE_DRAIN_AT {
@@ -171,13 +231,16 @@ impl ImageViewPool {
         }
     }
 
-    pub(crate) fn get(&self, index: u32, images: &[InnerImage]) -> ImageView {
+    pub(crate) fn get(&self, index: u32, images: &[InnerImage], slot: usize) -> ImageView {
         let spec = &self.specs[index as usize];
-        let image = images[spec.image_id as usize].image();
+        let image = images[spec.image_id as usize].image_at(slot);
+        if image == Image::default() {
+            panic!("image view requested for unbound swapchain slot {slot}");
+        }
         spec.entries.iter().find(|e| e.image == image).expect("image view not created (image unbound?)").view
     }
 
-    // moves intems into retired queue
+    // moves items into retired queue
     pub(crate) fn destroy_slot(&mut self, image_id: u32) {
         for spec in &mut self.specs {
             if spec.image_id == image_id {
@@ -187,7 +250,7 @@ impl ImageViewPool {
     }
 
     // destroys all the views
-    pub(crate) fn destory_all(&mut self) {
+    pub(crate) fn destroy_all(&mut self) {
         if self.specs.is_empty() && self.retired.is_empty() {
             return;
         }

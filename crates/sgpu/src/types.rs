@@ -157,6 +157,16 @@ pub struct BufferDescription {
     pub memory_type: MemoryType,
 }
 
+impl Default for BufferDescription {
+    fn default() -> Self {
+        BufferDescription {
+            usage: BufferUsage::STORAGE,
+            size: 0,
+            memory_type: MemoryType::DeviceLocal,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageType {
     Type1D,
