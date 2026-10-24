@@ -1,4 +1,4 @@
-use sgpu::{AccessType, AcquiredImage, Counter, GlobalBarrier, ImageBarrier, ImageLayout, PipelineStage};
+use sgpu::{AccessType, AcquiredImage, Counter, GlobalBarrier, ImageBarrier, ImageLayout, PipelineStage, QueryPool};
 use smallvec::SmallVec;
 
 use super::TaskGraph;
@@ -40,6 +40,7 @@ struct Checkpoints<'a, 'g, R: 'g, D: 'g> {
     slot_has_run: bool,
     // the previous frame's last counters per queue.
     ring: [Option<Counter>; 3],
+    timing: Option<&'a QueryPool>,
 }
 
 impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
@@ -61,8 +62,10 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         let seeded = compiled.runtime.per_frame_counters[(curr + self.frames_in_flight - 1) % self.frames_in_flight];
         let ring = compiled.runtime.per_frame_counters[curr];
 
+        self.ensure_timing_pools(compiled.built.len());
         self.views.refresh(&self.images);
 
+        let timing = self.timing_pool(curr);
         let mut frame = FrameState::new(&compiled.submissions);
 
         {
@@ -76,6 +79,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
                 graph_has_run,
                 slot_has_run: slot_fresh,
                 ring,
+                timing,
             };
 
             for &(queue, index) in &compiled.submissions.order {
@@ -93,6 +97,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         compiled.runtime.executed_once = true;
 
         self.compiled = Some(compiled);
+        self.mark_timing_written(curr);
         frame.present_counter.or(frame.last_counter).expect("graph has no nodes")
     }
 }
@@ -146,7 +151,18 @@ fn record_submission<'g, R: 'g, D: 'g>(checkpoints: &Checkpoints<'_, 'g, R, D>, 
             curr_frame: checkpoints.curr,
         };
         for &node in &submission.nodes {
+            let first = (node as u32) * 2;
+
+            if let Some(pool) = checkpoints.timing {
+                ctx.cmd.reset_query_pool(pool, first, 2);
+                ctx.cmd.write_timestamp(pool, first, PipelineStage::ALL_COMMANDS);
+            }
+
             checkpoints.built[node].execute(checkpoints.data, &mut ctx);
+
+            if let Some(pool) = checkpoints.timing {
+                ctx.cmd.write_timestamp(pool, first + 1, PipelineStage::ALL_COMMANDS);
+            }
         }
     }
 

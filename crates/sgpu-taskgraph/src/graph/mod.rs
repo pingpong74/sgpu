@@ -1,12 +1,16 @@
 mod compile;
 mod execute;
+mod timing;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use self::compile::{CompiledGraph, NodeDeclaration, RuntimeInfo, schedule::Schedule};
+use self::timing::NodeTimingState;
 use crate::node::{ExecutionContext, Node, NodeWriter};
 use crate::resource::{Id, ImageViewPool, InnerBuffer, InnerImage};
 use sgpu::{AcquiredImage, Buffer, BufferDescription, Counter, Image, ImageDescription, QueueType, create_buffer, create_image, destroy_buffer, destroy_image};
+
+pub use self::timing::{FrameTimings, NodeTiming};
 
 /// A graph consisting of Node
 /// Each Node points to some work on the GPU
@@ -20,6 +24,8 @@ pub struct TaskGraph<'g, R, D> {
     compiled: Option<CompiledGraph<'g, R, D>>,
     views: ImageViewPool,
     frames_in_flight: usize,
+    node_timing_enabled: bool,
+    node_timing: Option<NodeTimingState>,
 }
 
 impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
@@ -34,6 +40,8 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
             compiled: None,
             views: ImageViewPool::default(),
             frames_in_flight: 0,
+            node_timing_enabled: false,
+            node_timing: None,
         }
     }
 
@@ -109,6 +117,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         self.invalidate();
         self.entries.push(NodeEntry {
             queue: N::QUEUE,
+            label: std::any::type_name::<N>(),
             build: Box::new(move |res, w| Box::new(N::declare(res, &config, w))),
         });
     }
@@ -126,6 +135,7 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
         self.present_node = Some(self.entries.len());
         self.entries.push(NodeEntry {
             queue: <crate::node::PresentNode as Node<R, D>>::QUEUE,
+            label: std::any::type_name::<crate::node::PresentNode>(),
             build: Box::new(move |res, w| Box::new(<crate::node::PresentNode as Node<R, D>>::declare(res, &id, w))),
         });
     }
@@ -237,6 +247,70 @@ impl<'g, R: 'g, D: 'g> TaskGraph<'g, R, D> {
 
     /// Execute this taskgraph on the swapchain's frame timeline
     pub fn execute_with_swapchain(&mut self, data: &D, acquired: &AcquiredImage) -> Counter { self.run(Some(acquired), data) }
+
+    /// Enable or disable automatic per-node GPU timing.
+    pub fn set_node_timing(&mut self, enabled: bool) {
+        if self.node_timing_enabled == enabled {
+            return;
+        }
+
+        self.node_timing_enabled = enabled;
+
+        if let Some(timing) = &mut self.node_timing {
+            timing.written.fill(false);
+        }
+    }
+
+    /// Whether automatic per-node GPU timing is enabled.
+    pub fn node_timing_enabled(&self) -> bool { self.node_timing_enabled }
+
+    /// Read timings from the most recently executed timed frame.
+    pub fn node_timings(&self) -> Option<FrameTimings> {
+        if !self.node_timing_enabled {
+            return None;
+        }
+
+        let compiled = self.compiled.as_ref()?;
+        let timing = self.node_timing.as_ref()?;
+
+        let query_count = timing.query_count as usize;
+        if !compiled.runtime.executed_once || compiled.built.len().checked_mul(2) != Some(query_count) || self.entries.len().checked_mul(2) != Some(query_count) || timing.pools.len() != self.frames_in_flight {
+            return None;
+        }
+
+        let slot = compiled.runtime.curr_frame;
+        if !timing.written.get(slot).copied().unwrap_or(false) {
+            return None;
+        }
+
+        let timestamps = timing.pools.get(slot)?.get_timestamps_ns(0, timing.query_count);
+        let present_node = self.present_node;
+        let nodes = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(node, _)| Some(*node) != present_node)
+            .map(|(node, entry)| {
+                let first = node * 2;
+                let start_ns = timestamps[first];
+                let end_ns = timestamps[first + 1];
+
+                NodeTiming {
+                    node,
+                    label: entry.label,
+                    queue: entry.queue,
+                    start_ns,
+                    end_ns,
+                    duration_ns: end_ns - start_ns,
+                }
+            })
+            .collect();
+
+        Some(FrameTimings {
+            slot,
+            nodes,
+        })
+    }
 
     fn materialize_persistent_images(&mut self, recreate_resize: bool) {
         let slots = self.frames_in_flight;
@@ -360,6 +434,7 @@ impl<R, D, N: Node<R, D>> ErasedNode<R, D> for N {
 
 struct NodeEntry<'g, R, D> {
     queue: QueueType,
+    label: &'static str,
     build: Box<dyn Fn(&R, &mut NodeWriter) -> Box<dyn ErasedNode<R, D> + 'g> + 'g>,
 }
 

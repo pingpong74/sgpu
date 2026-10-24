@@ -2,7 +2,12 @@
 name = "sgpu-shaders"
 version.workspace = true
 edition.workspace = true
-description = "Shader-side bindless ABI for sgpu, the Rust twin of the sgpu.slang module"
+description = "Shader-side bindless ABI for sgpu"
+license = "MIT"
+repository = "https://github.com/pingpong74/sgpu"
+readme = "Readme.md"
+keywords = ["vulkan", "spirv", "shaders", "gpu"]
+categories = ["graphics", "rendering"]
 
 [dependencies]
 spirv-std = "0.10.0"
