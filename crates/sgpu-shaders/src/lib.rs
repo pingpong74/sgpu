@@ -346,3 +346,13 @@ image_getters! {
     fn get_rw_2d_i(StorageImage2dI),
     fn get_rw_3d_i(StorageImage3dI),
 }
+
+// Draw indirect command
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DrawIndirectCommand {
+    pub vertex_count: u32,
+    pub instance_count: u32,
+    pub first_vertex: u32,
+    pub first_instance: u32,
+}
