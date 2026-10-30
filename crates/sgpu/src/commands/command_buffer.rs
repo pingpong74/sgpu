@@ -245,6 +245,13 @@ impl<'a> Default for RenderingBeginInfo<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct BufferCopyRegion {
+    pub src_offset: u64,
+    pub dst_offset: u64,
+    pub size: u64,
+}
+
 pub struct CommandBuffer {
     pub(crate) handle: vk::CommandBuffer,
     pub(crate) queue: QueueType,
@@ -323,20 +330,13 @@ impl CommandBuffer {
         }
     }
 
-    pub fn copy_buffer(&mut self, src_buffer: Buffer, dst_buffer: Buffer, src_offset: u64, dst_offset: u64, size: u64) {
+    pub fn copy_buffer(&mut self, src_buffer: Buffer, dst_buffer: Buffer, buffer_copy_region: &[BufferCopyRegion]) {
         let ctx = self.ctx;
 
         unsafe {
-            ctx.device.handle.cmd_copy_buffer(
-                self.handle,
-                src_buffer.raw,
-                dst_buffer.raw,
-                &[vk::BufferCopy {
-                    size,
-                    src_offset,
-                    dst_offset,
-                }],
-            );
+            let regions = std::slice::from_raw_parts(buffer_copy_region.as_ptr().cast::<vk::BufferCopy>(), buffer_copy_region.len());
+
+            ctx.device.handle.cmd_copy_buffer(self.handle, src_buffer.raw, dst_buffer.raw, regions);
         }
     }
 
