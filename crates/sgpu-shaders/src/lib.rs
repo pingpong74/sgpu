@@ -307,6 +307,31 @@ macro_rules! image_getters {
     };
 }
 
+// Sampled 1D array
+pub type Image1dArray = spirv_std::Image!(1D, type = f32, sampled, arrayed);
+pub type Image1dArrayU = spirv_std::Image!(1D, type = u32, sampled, arrayed);
+pub type Image1dArrayI = spirv_std::Image!(1D, type = i32, sampled, arrayed);
+
+// Sampled 2D array
+pub type Image2dArray = spirv_std::Image!(2D, type = f32, sampled, arrayed);
+pub type Image2dArrayU = spirv_std::Image!(2D, type = u32, sampled, arrayed);
+pub type Image2dArrayI = spirv_std::Image!(2D, type = i32, sampled, arrayed);
+
+// Sampled Cube arrayed
+pub type CubemapArray = spirv_std::Image!(cube, type = f32, sampled, arrayed);
+pub type CubemapArrayU = spirv_std::Image!(cube, type = u32, sampled, arrayed);
+pub type CubemapArrayI = spirv_std::Image!(cube, type = i32, sampled, arrayed);
+
+// Storage 1D array
+pub type StorageImage1dArray = spirv_std::image::Image!(1D, type = f32, storage, arrayed);
+pub type StorageImage1dArrayU = spirv_std::image::Image!(1D, type = u32, storage, arrayed);
+pub type StorageImage1dArrayI = spirv_std::image::Image!(1D, type = i32, storage, arrayed);
+
+// Storage 2D array
+pub type StorageImage2dArray = spirv_std::image::Image!(2D, type = f32, storage, arrayed);
+pub type StorageImage2dArrayU = spirv_std::image::Image!(2D, type = u32, storage, arrayed);
+pub type StorageImage2dArrayI = spirv_std::image::Image!(2D, type = i32, storage, arrayed);
+
 image_getters! {
     SAMPLED_IMAGE_BINDING, SampledImageId;
     fn get_sampled_1d_f(Image1d),
@@ -319,6 +344,16 @@ image_getters! {
     fn get_sampled_1d_i(Image1dI),
     fn get_sampled_2d_i(Image2dI),
     fn get_sampled_3d_i(Image3dI),
+    // arrays
+    fn get_sampled_1d_array_f(Image1dArray),
+    fn get_sampled_1d_array_u(Image1dArrayU),
+    fn get_sampled_1d_array_i(Image1dArrayI),
+    fn get_sampled_2d_array_f(Image2dArray),
+    fn get_sampled_2d_array_u(Image2dArrayU),
+    fn get_sampled_2d_array_i(Image2dArrayI),
+    fn get_sampled_cube_array_f(CubemapArray),
+    fn get_sampled_cube_array_u(CubemapArrayU),
+    fn get_sampled_cube_array_i(CubemapArrayI),
 }
 
 image_getters! {
@@ -332,6 +367,14 @@ image_getters! {
     fn get_ro_1d_i(StorageImage1dI),
     fn get_ro_2d_i(StorageImage2dI),
     fn get_ro_3d_i(StorageImage3dI),
+
+    // array
+    fn get_ro_1d_array_f(StorageImage1dArray),
+    fn get_ro_1d_array_u(StorageImage1dArrayU),
+    fn get_ro_1d_array_i(StorageImage1dArrayI),
+    fn get_ro_2d_array_f(StorageImage2dArray),
+    fn get_ro_2d_array_u(StorageImage2dArrayU),
+    fn get_ro_2d_array_i(StorageImage2dArrayI),
 }
 
 image_getters! {
@@ -345,6 +388,13 @@ image_getters! {
     fn get_rw_1d_i(StorageImage1dI),
     fn get_rw_2d_i(StorageImage2dI),
     fn get_rw_3d_i(StorageImage3dI),
+    // arrayed
+    fn get_rw_1d_array_f(StorageImage1dArray),
+    fn get_rw_1d_array_u(StorageImage1dArrayU),
+    fn get_rw_1d_array_i(StorageImage1dArrayI),
+    fn get_rw_2d_array_f(StorageImage2dArray),
+    fn get_rw_2d_array_u(StorageImage2dArrayU),
+    fn get_rw_2d_array_i(StorageImage2dArrayI),
 }
 
 // Draw indirect command
