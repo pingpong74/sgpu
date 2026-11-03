@@ -1,8 +1,6 @@
-use sgpu_shaders::{
-    SampledImageId, SamplerId, get_sampled_2d_f,
-    glam::{Vec2, Vec3, Vec4},
-    spirv,
-};
+use sgpu_shaders::{SampledImageId, SamplerId, get_sampled_2d_f, spirv};
+
+use glam::{Vec2, Vec3, Vec4};
 
 #[repr(C)]
 pub struct PushConstants {

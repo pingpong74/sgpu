@@ -1,5 +1,5 @@
 [package]
-name = "example-shaders"
+name = "shaders"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -9,6 +9,7 @@ compile-driver = ["dep:spirv-builder"]
 
 [dependencies]
 sgpu-shaders = { path = "../../sgpu-shaders" }
+glam = "*"
 spirv-builder = { version = "0.10.0", optional = true }
 
 [[bin]]

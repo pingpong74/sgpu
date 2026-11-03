@@ -9,7 +9,7 @@ use spirv_std::memory::{Scope, Semantics};
 use spirv_std::{RuntimeArray, Sampler, TypedBuffer};
 
 pub use spirv_std::image::{Cubemap, Image1d, Image1dI, Image1dU, Image2d, Image2dI, Image2dU, Image3d, Image3dI, Image3dU, StorageImage1d, StorageImage1dI, StorageImage1dU, StorageImage2d, StorageImage2dI, StorageImage2dU, StorageImage3d, StorageImage3dI, StorageImage3dU};
-pub use spirv_std::{ByteAddressableBuffer as ByteAddressBuffer, glam, spirv};
+pub use spirv_std::{ByteAddressableBuffer as ByteAddressBuffer, spirv};
 
 pub const DESCRIPTOR_SET: u32 = 0;
 pub const SAMPLED_IMAGE_BINDING: u32 = 0;

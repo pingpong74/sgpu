@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+shaders = { path = "shaders" }
 glam.workspace = true
 image.workspace = true
 sgpu.workspace = true

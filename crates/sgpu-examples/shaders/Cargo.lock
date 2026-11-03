@@ -276,14 +276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-shaders"
-version = "0.1.0"
-dependencies = [
- "sgpu-shaders",
- "spirv-builder",
-]
-
-[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1076,6 +1068,15 @@ name = "sgpu-shaders"
 version = "0.1.0"
 dependencies = [
  "spirv-std",
+]
+
+[[package]]
+name = "shaders"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "sgpu-shaders",
+ "spirv-builder",
 ]
 
 [[package]]

@@ -1,10 +1,6 @@
-use sgpu_shaders::{
-    SampledImageId,
-    SamplerId,
-    get_sampled_2d_f,
-    glam::{Mat4, Vec2, Vec4},
-    spirv,
-};
+use sgpu_shaders::{SampledImageId, SamplerId, get_sampled_2d_f, spirv};
+
+use glam::{Mat4, Vec2, Vec4};
 
 #[repr(C)]
 pub struct PushConstants {
@@ -22,47 +18,155 @@ pub struct Vertex {
 
 const VERTICES: [Vertex; 36] = [
     // +X
-    Vertex { position: [0.5, -0.5, -0.5], uv: [0.0, 0.0] },
-    Vertex { position: [0.5, 0.5, -0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.5], uv: [0.0, 1.0] },
-    Vertex { position: [0.5, -0.5, 0.5], uv: [0.0, 1.0] },
-    Vertex { position: [0.5, 0.5, -0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, 0.5, 0.5], uv: [1.0, 1.0] },
+    Vertex {
+        position: [0.5, -0.5, -0.5],
+        uv: [0.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, 0.5],
+        uv: [1.0, 1.0],
+    },
     // -X
-    Vertex { position: [-0.5, -0.5, 0.5], uv: [0.0, 0.0] },
-    Vertex { position: [-0.5, 0.5, 0.5], uv: [1.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, -0.5], uv: [0.0, 1.0] },
-    Vertex { position: [-0.5, -0.5, -0.5], uv: [0.0, 1.0] },
-    Vertex { position: [-0.5, 0.5, 0.5], uv: [1.0, 0.0] },
-    Vertex { position: [-0.5, 0.5, -0.5], uv: [1.0, 1.0] },
+    Vertex {
+        position: [-0.5, -0.5, 0.5],
+        uv: [0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, -0.5],
+        uv: [1.0, 1.0],
+    },
     // +Y
-    Vertex { position: [-0.5, 0.5, -0.5], uv: [0.0, 0.0] },
-    Vertex { position: [-0.5, 0.5, 0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, 0.5, -0.5], uv: [0.0, 1.0] },
-    Vertex { position: [0.5, 0.5, -0.5], uv: [0.0, 1.0] },
-    Vertex { position: [-0.5, 0.5, 0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, 0.5, 0.5], uv: [1.0, 1.0] },
+    Vertex {
+        position: [-0.5, 0.5, -0.5],
+        uv: [0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, 0.5],
+        uv: [1.0, 1.0],
+    },
     // -Y
-    Vertex { position: [-0.5, -0.5, 0.5], uv: [0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, -0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.5], uv: [0.0, 1.0] },
-    Vertex { position: [0.5, -0.5, 0.5], uv: [0.0, 1.0] },
-    Vertex { position: [-0.5, -0.5, -0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, -0.5], uv: [1.0, 1.0] },
+    Vertex {
+        position: [-0.5, -0.5, 0.5],
+        uv: [0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, -0.5],
+        uv: [1.0, 1.0],
+    },
     // +Z
-    Vertex { position: [-0.5, -0.5, 0.5], uv: [0.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.5], uv: [1.0, 0.0] },
-    Vertex { position: [-0.5, 0.5, 0.5], uv: [0.0, 1.0] },
-    Vertex { position: [0.5, -0.5, 0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, 0.5, 0.5], uv: [1.0, 1.0] },
-    Vertex { position: [-0.5, 0.5, 0.5], uv: [0.0, 1.0] },
+    Vertex {
+        position: [-0.5, -0.5, 0.5],
+        uv: [0.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, 0.5],
+        uv: [1.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+        uv: [0.0, 1.0],
+    },
     // -Z
-    Vertex { position: [0.5, -0.5, -0.5], uv: [0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, -0.5], uv: [1.0, 0.0] },
-    Vertex { position: [0.5, 0.5, -0.5], uv: [0.0, 1.0] },
-    Vertex { position: [0.5, 0.5, -0.5], uv: [0.0, 1.0] },
-    Vertex { position: [-0.5, -0.5, -0.5], uv: [1.0, 0.0] },
-    Vertex { position: [-0.5, 0.5, -0.5], uv: [1.0, 1.0] },
+    Vertex {
+        position: [0.5, -0.5, -0.5],
+        uv: [0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+        uv: [0.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+        uv: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, -0.5],
+        uv: [1.0, 1.0],
+    },
 ];
 
 #[spirv(vertex)]

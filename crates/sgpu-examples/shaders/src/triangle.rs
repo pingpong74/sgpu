@@ -1,10 +1,6 @@
-use sgpu_shaders::{
-    BufferId,
-    ReadOnlyBuffer,
-    Read,
-    glam::{Vec3, Vec4, vec4},
-    spirv,
-};
+use sgpu_shaders::{BufferId, Read, ReadOnlyBuffer, spirv};
+
+use glam::{Vec3, Vec4, vec4};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
