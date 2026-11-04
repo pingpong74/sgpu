@@ -23,9 +23,9 @@ struct PostPushConstants {
 }
 
 struct Res {
-    hdr: Id<Image>,
-    depth: Id<Image>,
-    swapchain: Id<Image>,
+    hdr: PassImageId,
+    depth: PassImageId,
+    swapchain: PassImageId,
 }
 
 struct Frame {
@@ -242,8 +242,7 @@ impl Application for App {
             ..Default::default()
         });
 
-        let mut graph = TaskGraph::new();
-        graph.set_frames_in_flight(swapchain.frame_count());
+        let mut graph = TaskGraph::new(swapchain.frame_count());
 
         let res = Res {
             swapchain: graph.add_image(Image::default()),
@@ -286,7 +285,7 @@ impl Application for App {
             sampler,
         });
         graph.present_target(res.swapchain);
-        graph.compile(&res);
+        graph.compile(&res).expect("Failed to compile graph");
 
         App {
             swapchain,

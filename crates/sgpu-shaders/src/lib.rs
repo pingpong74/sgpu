@@ -8,8 +8,7 @@ use spirv_std::byte_addressable_buffer::ByteAddressableBuffer;
 use spirv_std::memory::{Scope, Semantics};
 use spirv_std::{RuntimeArray, Sampler, TypedBuffer};
 
-pub use spirv_std::image::{Cubemap, Image1d, Image1dI, Image1dU, Image2d, Image2dI, Image2dU, Image3d, Image3dI, Image3dU, StorageImage1d, StorageImage1dI, StorageImage1dU, StorageImage2d, StorageImage2dI, StorageImage2dU, StorageImage3d, StorageImage3dI, StorageImage3dU};
-pub use spirv_std::{ByteAddressableBuffer as ByteAddressBuffer, spirv};
+use spirv_std::image::{Cubemap, Image1d, Image1dI, Image1dU, Image2d, Image2dI, Image2dU, Image3d, Image3dI, Image3dU, StorageImage1d, StorageImage1dI, StorageImage1dU, StorageImage2d, StorageImage2dI, StorageImage2dU, StorageImage3d, StorageImage3dI, StorageImage3dU};
 
 pub const DESCRIPTOR_SET: u32 = 0;
 pub const SAMPLED_IMAGE_BINDING: u32 = 0;
@@ -97,7 +96,6 @@ impl SamplerId {
     #[inline]
     pub const fn new(id: u32) -> Self { Self { id } }
 
-    #[inline(never)]
     pub fn get_sampler(id: SamplerId) -> &'static Sampler {
         #[cfg(target_arch = "spirv")]
         {
@@ -264,7 +262,6 @@ pub unsafe fn bindless_buffers_mut() -> &'static mut BindlessBuffers {
 macro_rules! image_getters {
     ($binding:expr, $id:ty, non_writable; $(fn $name:ident($ty:ty)),+ $(,)?) => {
         $(
-            #[inline(never)]
             pub fn $name(id: $id) -> &'static $ty {
                 image_getters!(@body id, $id, $ty, $binding, "OpDecorate %var NonWritable")
             }
@@ -272,7 +269,6 @@ macro_rules! image_getters {
     };
     ($binding:expr, $id:ty; $(fn $name:ident($ty:ty)),+ $(,)?) => {
         $(
-            #[inline(never)]
             pub fn $name(id: $id) -> &'static $ty {
                 image_getters!(@body id, $id, $ty, $binding,)
             }

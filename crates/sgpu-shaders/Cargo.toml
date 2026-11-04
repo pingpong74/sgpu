@@ -10,7 +10,7 @@ keywords = ["vulkan", "spirv", "shaders", "gpu"]
 categories = ["graphics", "rendering"]
 
 [dependencies]
-spirv-std = "0.10.0"
+spirv-std = "0.11.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_arch, values("spirv"))'] }

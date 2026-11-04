@@ -1,4 +1,5 @@
-use sgpu_shaders::{BufferId, Read, ReadOnlyBuffer, spirv};
+use sgpu_shaders::{BufferId, Read, ReadOnlyBuffer};
+use spirv_std::spirv;
 
 use glam::{Vec3, Vec4, vec4};
 

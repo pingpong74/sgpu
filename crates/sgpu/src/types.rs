@@ -495,7 +495,7 @@ impl Default for SamplerDescription {
 }
 
 /// A vulkan Buffer
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct Buffer {
     pub(crate) raw: vk::Buffer,
     pub(crate) id: DefaultKey,
@@ -516,7 +516,7 @@ impl Sampler {
     pub fn descriptor_index(&self) -> SamplerId { SamplerId::new(self.id.data().as_ffi() as u32) }
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Eq)]
 pub struct Image {
     pub(crate) raw: vk::Image,
     pub(crate) default_view: ImageView,
@@ -532,7 +532,7 @@ impl Image {
     pub fn default_view(&self) -> ImageView { self.default_view }
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Eq)]
 pub struct ImageView {
     pub(crate) raw: vk::ImageView,
     pub(crate) id: DefaultKey,

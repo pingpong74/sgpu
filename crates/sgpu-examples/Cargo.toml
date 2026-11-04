@@ -12,6 +12,9 @@ sgpu.workspace = true
 sgpu-taskgraph.workspace = true
 winit.workspace = true
 
+[build-dependencies]
+cargo-gpu-install = "0.11.0"
+
 [[bin]]
 name = "triangle"
 path = "src/triangle.rs"

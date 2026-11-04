@@ -1,7 +1,5 @@
 use sgpu::{QueryPool, QueueType, create_query_pool};
 
-use super::TaskGraph;
-
 /// Per-node GPU timings for one executed frame.
 #[derive(Clone, Debug)]
 pub struct FrameTimings {
@@ -35,48 +33,11 @@ pub(crate) struct NodeTimingState {
 }
 
 impl NodeTimingState {
-    fn new(frames_in_flight: usize, query_count: u32) -> Self {
+    pub(crate) fn new(frames_in_flight: usize, query_count: u32) -> Self {
         Self {
             pools: (0..frames_in_flight).map(|_| create_query_pool(query_count)).collect(),
             query_count,
             written: vec![false; frames_in_flight],
-        }
-    }
-}
-
-impl<'g, R, D> TaskGraph<'g, R, D> {
-    pub(crate) fn ensure_timing_pools(&mut self, node_count: usize) {
-        if !self.node_timing_enabled || node_count == 0 {
-            return;
-        }
-
-        let query_count = u32::try_from(node_count.checked_mul(2).expect("node count overflows usize")).expect("too many nodes for timestamp queries");
-
-        if self.node_timing.as_ref().is_some_and(|timing| timing.query_count == query_count && timing.pools.len() == self.frames_in_flight) {
-            return;
-        }
-
-        if self.node_timing.is_some() {
-            sgpu::wait_idle();
-        }
-
-        self.node_timing = Some(NodeTimingState::new(self.frames_in_flight, query_count));
-    }
-
-    pub(crate) fn timing_pool(&self, slot: usize) -> Option<&QueryPool> {
-        if !self.node_timing_enabled {
-            return None;
-        }
-
-        self.node_timing.as_ref().and_then(|timing| timing.pools.get(slot))
-    }
-
-    pub(crate) fn mark_timing_written(&mut self, slot: usize) {
-        if self.node_timing_enabled
-            && let Some(timing) = &mut self.node_timing
-            && let Some(written) = timing.written.get_mut(slot)
-        {
-            *written = true;
         }
     }
 }

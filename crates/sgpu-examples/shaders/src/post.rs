@@ -1,4 +1,5 @@
-use sgpu_shaders::{SampledImageId, SamplerId, get_sampled_2d_f, spirv};
+use sgpu_shaders::{SampledImageId, SamplerId, get_sampled_2d_f};
+use spirv_std::spirv;
 
 use glam::{Vec2, Vec3, Vec4};
 

@@ -20,7 +20,7 @@ raw-window-handle = "0.6"
 slotmap = "1.0"
 bitflags = "2"
 smallvec = "1"
-winit = "0.30"
+winit = "*"
 
 [profile.dev]
 opt-level = 1

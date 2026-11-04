@@ -1,4 +1,5 @@
-#![cfg_attr(target_arch = "spirv", no_std)]
+#![no_std]
+//#![cfg_attr(target_arch = "spirv")]
 
 pub mod cube;
 pub mod post;
