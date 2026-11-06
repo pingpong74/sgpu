@@ -88,7 +88,6 @@ struct ImageViewSpecification {
     entries: SmallVec<[ViewEntry; 4]>,
 }
 
-/// View objects, deduplicated per `(image, description)` spec.
 #[derive(Default)]
 struct ImageViewPool {
     specs: Vec<ImageViewSpecification>,
@@ -108,6 +107,9 @@ impl ImageViewPool {
         });
         self.specs.len() as u32 - 1
     }
+
+    /// The subresource range the view spec at `view` covers.
+    fn subresources(&self, view: u32) -> ImageSubresources { self.specs[view as usize].image_view_desc.subresources }
 
     // moves items into retired queue
     fn destroy_slot(&mut self, image_id: u32) {
@@ -247,6 +249,9 @@ impl ResourcePool {
     }
 
     pub(crate) fn register_view(&mut self, image_id: u32, desc: ImageViewDescription) -> u32 { self.views.register(image_id, desc) }
+
+    /// The subresource range the registered view spec `view` covers.
+    pub(crate) fn view_subresources(&self, view: u32) -> ImageSubresources { self.views.subresources(view) }
 
     /// The view of `image_id`'s instance in `slot`, creating it on first use.
     pub(crate) fn view(&self, image_id: u32, slot: usize) -> ImageView {
@@ -428,7 +433,8 @@ impl ResourcePool {
                         }
                         HeapMember::Buffer(id) => {
                             let InnerBuffer::Transient {
-                                buffer_desc, ..
+                                buffer_desc,
+                                ..
                             } = self.get_buffer(*id)
                             else {
                                 unreachable!("transient member above")
@@ -514,7 +520,8 @@ fn member_requirements(pool: &ResourcePool, member: &HeapMember, aliased: bool) 
         }
         HeapMember::Buffer(id) => {
             let InnerBuffer::Transient {
-                buffer_desc, ..
+                buffer_desc,
+                ..
             } = pool.get_buffer(*id)
             else {
                 unreachable!("heap members are transients")

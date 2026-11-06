@@ -107,12 +107,14 @@ impl Context {
     pub(crate) fn create_image(&self, desc: &ImageDescription) -> Image {
         let inner_image = self.device.create_image(desc);
         let raw_image = inner_image.image;
+        let format = inner_image.format;
         let id = self.images.write().unwrap().insert(inner_image);
 
         let mut image = Image {
             raw: raw_image,
             default_view: ImageView::default(),
             id,
+            format,
         };
         image.default_view = self.create_image_view(&desc.default_view, image);
         image
@@ -193,12 +195,14 @@ impl Context {
             .map(|member| {
                 let inner = self.device.create_pooled_image(&member.desc, allocation.clone(), member.offset, member.aliased);
                 let raw = inner.image;
+                let format = inner.format;
                 let id = self.images.write().unwrap().insert(inner);
 
                 let mut image = Image {
                     raw,
                     default_view: ImageView::default(),
                     id,
+                    format,
                 };
                 image.default_view = self.create_image_view(&member.desc.default_view, image);
                 image

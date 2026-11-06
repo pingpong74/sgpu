@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use sgpu::{AccessType, PipelineStage};
+use sgpu::{AccessType, ImageAspect, ImageSubresources, PipelineStage};
 
-use crate::{PassBufferId, PassImageId, graph::ResourcePool};
+use crate::{PassBufferId, PassImageId, graph::ResourcePool, resource::ImageViewRef};
 
 use super::{GraphError, NodeDeclaration};
 
@@ -26,10 +26,20 @@ pub(crate) struct BatchIndex {
     pub(crate) queue: usize,
 }
 
+/// One access inside a group, together with the view range it touches.
+#[derive(Clone, Debug, Copy)]
+pub(crate) struct GroupAccess {
+    pub(crate) access: AccessType,
+    pub(crate) view: ImageViewRef,
+    /// The subresources this access touches. `None` means the whole image
+    /// (its default view) or a buffer, and overlaps every other range.
+    pub(crate) range: Option<ImageSubresources>,
+}
+
 /// The contiguous run of accesses to one resource between two conflict points.
 #[derive(Debug)]
 pub(crate) struct AccessGroup {
-    pub(crate) accesses: Vec<AccessType>,
+    pub(crate) accesses: Vec<GroupAccess>,
     /// Node indices, indexed by queue.
     pub(crate) members: [Vec<usize>; 3],
     /// Where this group runs. Empty until the waves are known.
@@ -37,11 +47,11 @@ pub(crate) struct AccessGroup {
 }
 
 impl AccessGroup {
-    /// Whether this group is exactly one node presenting this resource.
-    pub(crate) fn is_present(&self) -> bool { self.accesses.len() == 1 && self.accesses[0] == AccessType::Present && self.member_count() == 1 }
+    pub(crate) fn is_write(&self) -> bool { self.accesses.iter().any(|access| access.access.is_write()) }
 
-    /// Total nodes across all queues.
-    pub(crate) fn member_count(&self) -> usize { self.members.iter().map(Vec::len).sum() }
+    pub(crate) fn has_present(&self) -> bool { self.accesses.iter().any(|access| access.access == AccessType::Present) }
+
+    pub(crate) fn stage(&self) -> PipelineStage { self.accesses.iter().fold(PipelineStage::NONE, |acc, access| acc | access.access.stage()) }
 
     /// Assigns Group spans
     pub(crate) fn assign_group_span(&mut self, task_to_batch: &[usize]) {
@@ -86,12 +96,10 @@ impl AccessGroup {
 
     fn span_on(&self, queue: usize) -> GroupSpan { self.spans[queue].expect("group does not run on this queue") }
 
-    /// The queue-local start of this group: the earliest `(wave, queue)` it
-    /// runs at. Image layout transitions are recorded here, on exactly one
-    /// queue; every other queue that touches the group waits on this one.
+    /// Earlier (queue, batch)
     pub(crate) fn first_batch(&self) -> BatchIndex { self.queues().map(|queue| self.first(queue)).min().expect("group has members") }
 
-    /// The earliest wave any queue runs this group at.
+    /// The earliest batch any queue runs this group at.
     pub(crate) fn start(&self) -> usize { self.spans.iter().flatten().map(|span| span.first_batch).min().expect("group has members") }
 
     /// The latest wave any queue runs this group at.
@@ -124,11 +132,12 @@ pub(crate) struct Timeline {
 }
 
 impl Timeline {
-    fn push_group(&mut self, access: AccessType, node: usize, queue_index: usize) -> Result<usize, (AccessType, AccessType)> {
-        // A check to see whether the last grp contains this node
-        if self.groups.last().is_some_and(|last| last.members.iter().any(|members| members.contains(&node))) && conflicts(&self.groups.last().expect("checked above").accesses, &[access]) {
-            let last = self.groups.last().expect("checked above");
-            return Err((last.accesses.last().copied().unwrap_or(access), access));
+    fn push_group(&mut self, access: GroupAccess, node: usize, queue_index: usize) -> Result<usize, (AccessType, AccessType)> {
+        if let Some(last) = self.groups.last()
+            && last.members.iter().any(|members| members.contains(&node))
+            && let Some(conflict) = first_conflict(&last.accesses, &[access])
+        {
+            return Err(conflict);
         }
 
         if self.groups.last().is_some_and(|last| !conflicts(&last.accesses, &[access])) {
@@ -162,7 +171,7 @@ impl Timeline {
 
     pub(crate) fn validate_present(&self) -> Result<(), GraphError> {
         for (index, group) in self.groups.iter().enumerate() {
-            if !group.is_present() {
+            if !group.has_present() {
                 continue;
             }
             if index != self.groups.len() - 1 {
@@ -187,12 +196,12 @@ pub(crate) fn build_timelines<'g, R, D>(pool: &ResourcePool, nodes: &[NodeDeclar
     for (node, declaration) in nodes.iter().enumerate() {
         let queue_index = declaration.queue as usize;
 
-        for &(image, access) in &declaration.images {
-            let resource = Resource::Image(image);
+        for &img_use in &declaration.images {
+            let resource = Resource::Image(img_use.image);
             let timeline = *res_to_timeline.entry(resource).or_insert_with(|| {
                 timelines.push(Timeline {
                     resource,
-                    transient: pool.get_image(image).is_transient(),
+                    transient: pool.get_image(img_use.image).is_transient(),
                     groups: Vec::new(),
                     previous_use: PreviousUse {
                         timeline: usize::MAX,
@@ -203,7 +212,18 @@ pub(crate) fn build_timelines<'g, R, D>(pool: &ResourcePool, nodes: &[NodeDeclar
                 timelines.len() - 1
             });
 
-            if let Err((first, second)) = timelines[timeline].push_group(access, node, queue_index) {
+            if let Err((first, second)) = timelines[timeline].push_group(
+                GroupAccess {
+                    access: img_use.access,
+                    view: img_use.view,
+                    range: match img_use.view {
+                        ImageViewRef::Default => None,
+                        ImageViewRef::Registered(view) => Some(pool.view_subresources(view)),
+                    },
+                },
+                node,
+                queue_index,
+            ) {
                 return Err(GraphError::SelfDependency {
                     node,
                     label: declaration.label,
@@ -230,7 +250,15 @@ pub(crate) fn build_timelines<'g, R, D>(pool: &ResourcePool, nodes: &[NodeDeclar
                 timelines.len() - 1
             });
 
-            if let Err((first, second)) = timelines[timeline].push_group(access, node, queue_index) {
+            if let Err((first, second)) = timelines[timeline].push_group(
+                GroupAccess {
+                    access,
+                    view: ImageViewRef::Default,
+                    range: None,
+                },
+                node,
+                queue_index,
+            ) {
                 return Err(GraphError::SelfDependency {
                     node,
                     label: declaration.label,
@@ -256,13 +284,47 @@ pub(crate) fn build_timelines<'g, R, D>(pool: &ResourcePool, nodes: &[NodeDeclar
     Ok(timelines)
 }
 
-pub(super) fn is_present(accesses: &[AccessType]) -> bool { accesses.contains(&AccessType::Present) }
+pub(super) fn conflicts(previous: &[GroupAccess], next: &[GroupAccess]) -> bool { first_conflict(previous, next).is_some() }
 
-pub(super) fn is_write(accesses: &[AccessType]) -> bool { accesses.iter().any(|access| access.is_write()) }
+pub(super) fn first_conflict(previous: &[GroupAccess], next: &[GroupAccess]) -> Option<(AccessType, AccessType)> {
+    previous.iter().find_map(|previous| next.iter().find(|next| ranges_overlap(previous.range, next.range) && access_conflicts(previous.access, next.access)).map(|next| (previous.access, next.access)))
+}
 
-/// The combined pipeline stage a group's accesses need.
-pub(super) fn stage_of(accesses: &[AccessType]) -> PipelineStage { accesses.iter().fold(PipelineStage::NONE, |acc, &access| acc | access.stage()) }
+pub(super) fn access_conflicts(previous: AccessType, next: AccessType) -> bool { previous.is_write() || next.is_write() || previous.layout_differs(next) || previous == AccessType::Present || next == AccessType::Present }
 
-/// Whether two access sets on the same resource need an ordering between
-/// them. Conservatively true for any write, any layout change and `Present`.
-pub(super) fn conflicts(previous: &[AccessType], next: &[AccessType]) -> bool { is_write(previous) || is_write(next) || previous.first().zip(next.first()).is_some_and(|(previous, next)| previous.layout_differs(*next)) || is_present(previous) || is_present(next) }
+/// Whether two subresource ranges overlap.
+pub(super) fn ranges_overlap(previous: Option<ImageSubresources>, next: Option<ImageSubresources>) -> bool {
+    let (Some(previous), Some(next)) = (previous, next) else {
+        return true;
+    };
+
+    let levels = previous.mip_level < span_end(next.mip_level, next.level_count) && next.mip_level < span_end(previous.mip_level, previous.level_count);
+    let layers = previous.base_array_layer < span_end(next.base_array_layer, next.layer_count) && next.base_array_layer < span_end(previous.base_array_layer, previous.layer_count);
+
+    // `AUTO` is resolved against the image's format when the view is created,
+    // which the plan cannot see, so it overlaps every aspect.
+    let aspects = previous.aspect.intersects(next.aspect) || previous.aspect == ImageAspect::AUTO || next.aspect == ImageAspect::AUTO;
+
+    aspects && levels && layers
+}
+
+/// Whether inner is inside outer
+pub(super) fn range_contains(outer: Option<ImageSubresources>, inner: Option<ImageSubresources>) -> bool {
+    let (Some(outer), Some(inner)) = (outer, inner) else {
+        return false;
+    };
+
+    // A count of `0` means "rest of the image".
+    let levels = outer.mip_level <= inner.mip_level && span_end(inner.mip_level, inner.level_count) <= span_end(outer.mip_level, outer.level_count);
+    let layers = outer.base_array_layer <= inner.base_array_layer && span_end(inner.base_array_layer, inner.layer_count) <= span_end(outer.base_array_layer, outer.layer_count);
+
+    outer.aspect.contains(inner.aspect) && levels && layers
+}
+
+fn span_end(base: u32, count: u32) -> u32 {
+    if count == 0 {
+        u32::MAX
+    } else {
+        base.saturating_add(count)
+    }
+}

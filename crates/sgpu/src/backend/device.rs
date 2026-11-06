@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    BufferDescription, ComputePipeline, ImageAspect, ImageDescription, ImageViewDescription, MemoryType, SamplerDescription,
+    BufferDescription, ComputePipeline, ImageDescription, ImageViewDescription, MemoryType, SamplerDescription,
     api::SgpuInititizationInfo,
     backend::{
         commands::{CommandPoolRing, Queue, Queues, ThreadCommandPools},
@@ -401,14 +401,7 @@ impl Device {
     }
 
     pub(crate) fn create_image_view(&self, image: &InnerImage, desc: &ImageViewDescription) -> InnerImageView {
-        let mut subresources = desc.subresources;
-        if subresources.aspect == ImageAspect::COLOR {
-            subresources.aspect = match image.format {
-                vk::Format::D16_UNORM | vk::Format::X8_D24_UNORM_PACK32 | vk::Format::D32_SFLOAT => ImageAspect::DEPTH,
-                vk::Format::D24_UNORM_S8_UINT | vk::Format::D32_SFLOAT_S8_UINT => ImageAspect::DEPTH | ImageAspect::STENCIL,
-                _ => ImageAspect::COLOR,
-            };
-        }
+        let subresources = desc.subresources.resolved_for(image.format);
 
         let image_view_create_info = vk::ImageViewCreateInfo::default()
             .image(image.image)

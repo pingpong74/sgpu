@@ -386,7 +386,7 @@ impl CommandBuffer {
 
     pub fn copy_buffer_to_image(&mut self, src_buffer: &Buffer, dst_image: &Image, regions: &[BufferImageCopyRegion]) {
         let ctx = self.ctx;
-        let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
+        let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk(dst_image.format)).collect();
         unsafe {
             ctx.device.handle.cmd_copy_buffer_to_image(self.handle, src_buffer.raw, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk);
         }
@@ -394,7 +394,7 @@ impl CommandBuffer {
 
     pub fn copy_image_to_buffer(&mut self, src_image: &Image, dst_buffer: &Buffer, regions: &[BufferImageCopyRegion]) {
         let ctx = self.ctx;
-        let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk()).collect();
+        let regions_vk: SmallVec<[vk::BufferImageCopy; 4]> = regions.iter().map(|r| r.to_vk(src_image.format)).collect();
         unsafe {
             ctx.device.handle.cmd_copy_image_to_buffer(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_buffer.raw, &regions_vk);
         }
@@ -402,7 +402,7 @@ impl CommandBuffer {
 
     pub fn copy_image(&mut self, src_image: &Image, dst_image: &Image, region: &ImageCopyRegion) {
         let ctx = self.ctx;
-        let region_vk = region.to_vk();
+        let region_vk = region.to_vk(src_image.format, dst_image.format);
         unsafe {
             ctx.device.handle.cmd_copy_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, std::slice::from_ref(&region_vk));
         }
@@ -410,7 +410,7 @@ impl CommandBuffer {
 
     pub fn blit_image(&mut self, src_image: &Image, dst_image: &Image, regions: &[BlitRegion], filter: Filter) {
         let ctx = self.ctx;
-        let regions_vk: SmallVec<[vk::ImageBlit; 4]> = regions.iter().map(|r| r.to_vk()).collect();
+        let regions_vk: SmallVec<[vk::ImageBlit; 4]> = regions.iter().map(|r| r.to_vk(src_image.format, dst_image.format)).collect();
         unsafe {
             ctx.device.handle.cmd_blit_image(self.handle, src_image.raw, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, dst_image.raw, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions_vk, filter.to_vk());
         }

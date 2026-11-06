@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     GraphError,
-    timeline::{Frame, PreviousUse, Resource, Timeline, is_write},
+    timeline::{Frame, PreviousUse, Resource, Timeline},
 };
 
 /// All lanes of one memory type, packed into a single allocation.
@@ -91,7 +91,7 @@ fn collect_lives(pool: &ResourcePool, timelines: &[Timeline]) -> Result<BTreeMap
     let mut classes: BTreeMap<usize, Vec<Life>> = BTreeMap::new();
 
     for (timeline_index, timeline) in timelines.iter().enumerate().filter(|(_, tl)| tl.transient) {
-        if !is_write(&timeline.groups[0].accesses) {
+        if !timeline.groups[0].is_write() {
             return Err(GraphError::TransientNotWrittenFirst {
                 resource: timeline.resource,
             });

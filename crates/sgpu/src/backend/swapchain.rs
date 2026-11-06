@@ -189,6 +189,7 @@ impl InnerSwapchain {
             .into_iter()
             .map(|img| {
                 let raw_image = img.image;
+                let format = img.format;
                 let inner_view = ctx.device.create_image_view(&img, &ImageViewDescription::default());
                 let raw = inner_view.view;
                 let view_id = ctx.image_views.write().unwrap().insert(inner_view);
@@ -201,6 +202,7 @@ impl InnerSwapchain {
                         id: view_id,
                     },
                     id: image_id,
+                    format,
                 }
             })
             .collect();

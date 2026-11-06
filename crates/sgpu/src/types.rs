@@ -341,6 +341,14 @@ pub struct ImageSubresources {
 }
 
 impl ImageSubresources {
+    /// This range with `AUTO` resolved against `format`.
+    pub(crate) fn resolved_for(self, format: vk::Format) -> Self {
+        ImageSubresources {
+            aspect: self.aspect.resolved_for(format),
+            ..self
+        }
+    }
+
     pub(crate) const fn to_vk_subresource_layers(self) -> vk::ImageSubresourceLayers {
         vk::ImageSubresourceLayers {
             aspect_mask: self.aspect.to_vk(),
@@ -364,7 +372,7 @@ impl ImageSubresources {
 impl Default for ImageSubresources {
     fn default() -> Self {
         ImageSubresources {
-            aspect: ImageAspect::COLOR,
+            aspect: ImageAspect::AUTO,
             mip_level: 0,
             level_count: 1,
             base_array_layer: 0,
@@ -405,12 +413,27 @@ bitflags::bitflags! {
         const COLOR = vk::ImageAspectFlags::COLOR.as_raw();
         const DEPTH = vk::ImageAspectFlags::DEPTH.as_raw();
         const STENCIL = vk::ImageAspectFlags::STENCIL.as_raw();
+        const AUTO = 1 << 31;
     }
 }
 
 impl ImageAspect {
+    pub(crate) fn resolved_for(self, format: vk::Format) -> Self {
+        if self != Self::AUTO {
+            return self;
+        }
+        match format {
+            vk::Format::D16_UNORM | vk::Format::X8_D24_UNORM_PACK32 | vk::Format::D32_SFLOAT => Self::DEPTH,
+            vk::Format::D24_UNORM_S8_UINT | vk::Format::D32_SFLOAT_S8_UINT => Self::DEPTH | Self::STENCIL,
+            _ => Self::COLOR,
+        }
+    }
+
     #[inline]
-    pub const fn to_vk(self) -> vk::ImageAspectFlags { vk::ImageAspectFlags::from_raw(self.bits()) }
+    pub const fn to_vk(self) -> vk::ImageAspectFlags {
+        assert!(!self.contains(Self::AUTO), "ImageAspect::AUTO must be resolved against an image format before use");
+        vk::ImageAspectFlags::from_raw(self.bits())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -521,6 +544,7 @@ pub struct Image {
     pub(crate) raw: vk::Image,
     pub(crate) default_view: ImageView,
     pub(crate) id: DefaultKey,
+    pub(crate) format: vk::Format,
 }
 
 impl Image {
@@ -556,12 +580,12 @@ pub struct BufferImageCopyRegion {
 }
 
 impl BufferImageCopyRegion {
-    pub(crate) fn to_vk(self) -> vk::BufferImageCopy {
+    pub(crate) fn to_vk(self, format: vk::Format) -> vk::BufferImageCopy {
         vk::BufferImageCopy {
             buffer_offset: self.buffer_offset,
             buffer_row_length: self.buffer_row_length,
             buffer_image_height: self.buffer_image_height,
-            image_subresource: self.image_subresource.to_vk_subresource_layers(),
+            image_subresource: self.image_subresource.resolved_for(format).to_vk_subresource_layers(),
             image_offset: self.image_offset.to_vk(),
             image_extent: self.image_extent.to_vk(),
         }
@@ -579,11 +603,11 @@ pub struct ImageCopyRegion {
 }
 
 impl ImageCopyRegion {
-    pub(crate) fn to_vk(self) -> vk::ImageCopy {
+    pub(crate) fn to_vk(self, src_format: vk::Format, dst_format: vk::Format) -> vk::ImageCopy {
         vk::ImageCopy {
-            src_subresource: self.src_subresource.to_vk_subresource_layers(),
+            src_subresource: self.src_subresource.resolved_for(src_format).to_vk_subresource_layers(),
             src_offset: self.src_offset.to_vk(),
-            dst_subresource: self.dst_subresource.to_vk_subresource_layers(),
+            dst_subresource: self.dst_subresource.resolved_for(dst_format).to_vk_subresource_layers(),
             dst_offset: self.dst_offset.to_vk(),
             extent: self.extent.to_vk(),
         }
@@ -600,14 +624,14 @@ pub struct BlitRegion {
 }
 
 impl BlitRegion {
-    pub(crate) fn to_vk(self) -> vk::ImageBlit {
+    pub(crate) fn to_vk(self, src_format: vk::Format, dst_format: vk::Format) -> vk::ImageBlit {
         vk::ImageBlit {
-            src_subresource: self.src_subresource.to_vk_subresource_layers(),
+            src_subresource: self.src_subresource.resolved_for(src_format).to_vk_subresource_layers(),
             src_offsets: [
                 self.src_offsets[0].to_vk(),
                 self.src_offsets[1].to_vk(),
             ],
-            dst_subresource: self.dst_subresource.to_vk_subresource_layers(),
+            dst_subresource: self.dst_subresource.resolved_for(dst_format).to_vk_subresource_layers(),
             dst_offsets: [
                 self.dst_offsets[0].to_vk(),
                 self.dst_offsets[1].to_vk(),

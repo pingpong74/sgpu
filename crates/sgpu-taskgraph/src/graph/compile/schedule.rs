@@ -19,7 +19,6 @@ impl Schedule {
     }
 }
 
-/// Kahn's waves, plus each node's wave — the latter stamps group spans.
 fn assign_batches<'g, R, D>(timelines: &[Timeline], nodes: &[NodeDeclaration<'g, R, D>]) -> Result<(Vec<Vec<usize>>, Vec<usize>), GraphError> {
     let mut adj_list: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
     for timeline in timelines {

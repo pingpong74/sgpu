@@ -2,11 +2,12 @@ use sgpu::{AcquiredImage, Counter, GlobalBarrier, ImageBarrier, ImageLayout, Pip
 use smallvec::SmallVec;
 
 use super::ResourcePool;
-use super::compile::sync_2::{ExecutionBatch, SubmitId, SubmitPlan};
+use super::compile::sync::{ExecutionBatch, SubmitId, SubmitPlan};
 use super::timing::NodeTimingState;
 use crate::{
     graph::{Heap, NodeDeclaration},
     node::ExecutionContext,
+    resource::ImageViewRef,
 };
 
 /// Counters produced by the submits recorded so far in this frame.
@@ -111,16 +112,10 @@ impl<'g, R: 'g, D: 'g> CompiledGraph<'g, R, D> {
         frame.present_counter.or(frame.last_frame_complete_counter).expect("graph has no nodes")
     }
 
-    /// Records every submit in an order that respects the plan.
-    ///
-    /// Each submit's in-degree is the number of `signals` edges pointing at it,
-    /// counted from the plan itself so the two can never disagree. A submit with
-    /// nothing left to wait for is recorded immediately, then its counter is
-    /// forwarded along its `signals`, and the next wave of ready submits is
-    /// drained. The plan is acyclic, so this reaches every submit.
     fn drain(&self, ctx: &FrameCtx<'_, D>, frame: &mut FrameState) {
         let plan = &self.plan;
 
+        // redundancy
         let mut in_degree: [Vec<usize>; 3] = std::array::from_fn(|queue| vec![0; plan.submits[queue].len()]);
         for column in &plan.submits {
             for submit in column {
@@ -165,8 +160,6 @@ impl<'g, R: 'g, D: 'g> CompiledGraph<'g, R, D> {
 
         let mut waits: SmallVec<[(Counter, PipelineStage); 3]> = SmallVec::new();
         for wait in &submit.waits {
-            // The drain records sources before their waiters, so the counter is
-            // always in place by the time it is needed.
             let counter = frame.counters[wait.source.queue][wait.source.index].expect("a submit only drains after its sources");
             waits.push((counter, wait.stage));
         }
@@ -180,8 +173,6 @@ impl<'g, R: 'g, D: 'g> CompiledGraph<'g, R, D> {
         for (position, batch) in submit.exec_batches.iter().enumerate() {
             let mut cmd = sgpu::record(submit.queue);
 
-            // Every command buffer folds into a single `vkQueueSubmit`, so the
-            // waits only need recording once — on the first batch.
             if position == 0 {
                 if submit.acquire
                     && let Some(acquired) = ctx.acquired
@@ -230,9 +221,6 @@ impl<'g, R: 'g, D: 'g> CompiledGraph<'g, R, D> {
     }
 
     fn record_barriers(&self, ctx: &FrameCtx<'_, D>, cmd: &mut sgpu::CommandBuffer, batch: &ExecutionBatch) {
-        // A slot that has never run has no previous state to order against, so
-        // its barriers transition from nothing rather than from whatever the
-        // last group on some other slot left behind.
         let planned = if ctx.frame_fresh {
             &batch.first_frame_barriers
         } else {
@@ -243,7 +231,10 @@ impl<'g, R: 'g, D: 'g> CompiledGraph<'g, R, D> {
             .images
             .iter()
             .map(|image| ImageBarrier {
-                view: ctx.pool.get_image(image.image).image_at(ctx.curr).default_view(),
+                view: match image.view {
+                    ImageViewRef::Default => ctx.pool.get_image(image.image).image_at(ctx.curr).default_view(),
+                    ImageViewRef::Registered(view) => ctx.pool.view(view, ctx.curr),
+                },
                 previous_accesses: &image.previous,
                 next_accesses: &image.next,
                 previous_layout: ImageLayout::Optimal,

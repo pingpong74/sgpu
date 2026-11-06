@@ -40,8 +40,8 @@ struct SceneConfig {
 }
 
 struct Scene {
-    hdr: PassImage<access::ColorWrite>,
-    depth: PassImage<access::DepthWrite>,
+    hdr: PassImageView<access::ColorWrite>,
+    depth: PassImageView<access::DepthWrite>,
     pipeline: RasterizationPipeline,
     texture: SampledImageId,
     sampler: SamplerId,
@@ -53,8 +53,8 @@ impl Node<Res, Frame> for Scene {
 
     fn declare(res: &Res, config: &SceneConfig, w: &mut NodeWriter) -> Self {
         Scene {
-            hdr: w.image(res.hdr),
-            depth: w.image(res.depth),
+            hdr: w.default_view(res.hdr),
+            depth: w.default_view(res.depth),
             pipeline: config.pipeline,
             texture: config.texture.default_view().sampled_id(),
             sampler: config.sampler.descriptor_index(),
@@ -62,8 +62,8 @@ impl Node<Res, Frame> for Scene {
     }
 
     fn execute(&self, data: &Frame, ctx: &mut ExecutionContext<'_>) {
-        let hdr = ctx.image(self.hdr).default_view();
-        let depth = ctx.image(self.depth).default_view();
+        let hdr = ctx.view(self.hdr);
+        let depth = ctx.view(self.depth);
 
         ctx.cmd().begin_rendering(
             &RenderingBeginInfo {
@@ -109,8 +109,8 @@ struct PostConfig {
 }
 
 struct Post {
-    swapchain: PassImage<access::ColorWrite>,
-    hdr: PassImage<access::FragmentSampledRead>,
+    swapchain: PassImageView<access::ColorWrite>,
+    hdr: PassImageView<access::FragmentSampledRead>,
     pipeline: RasterizationPipeline,
     sampler: SamplerId,
 }
@@ -121,15 +121,15 @@ impl Node<Res, Frame> for Post {
 
     fn declare(res: &Res, config: &PostConfig, w: &mut NodeWriter) -> Self {
         Post {
-            swapchain: w.image(res.swapchain),
-            hdr: w.image(res.hdr),
+            swapchain: w.default_view(res.swapchain),
+            hdr: w.default_view(res.hdr),
             pipeline: config.pipeline,
             sampler: config.sampler.descriptor_index(),
         }
     }
 
     fn execute(&self, data: &Frame, ctx: &mut ExecutionContext<'_>) {
-        let swapchain = ctx.image(self.swapchain).default_view();
+        let swapchain = ctx.view(self.swapchain);
         let hdr = ctx.sampled_id(self.hdr);
         let extent = data.extent;
 
